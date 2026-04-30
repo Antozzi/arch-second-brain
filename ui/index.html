@@ -269,6 +269,22 @@
     align-self: flex-start;
   }
   .msg-ai .src { font-size: 10px; color: var(--text3); margin-top: 6px; }
+  .msg-ai h1,.msg-ai h2,.msg-ai h3 { font-family: var(--display); font-weight: 500; margin: 10px 0 6px; color: var(--accent2); font-size: 13px; }
+  .msg-ai h2 { font-size: 12px; }
+  .msg-ai h3 { font-size: 11px; color: var(--text2); }
+  .msg-ai p { margin: 6px 0; line-height: 1.7; }
+  .msg-ai ul, .msg-ai ol { padding-left: 16px; margin: 6px 0; }
+  .msg-ai li { margin: 3px 0; line-height: 1.6; }
+  .msg-ai code { font-family: var(--mono); font-size: 11px; background: var(--surface); padding: 1px 5px; border-radius: 4px; color: var(--cyan); }
+  .msg-ai pre { background: var(--surface); border-radius: 6px; padding: 10px; overflow-x: auto; margin: 8px 0; }
+  .msg-ai pre code { background: none; padding: 0; color: var(--text); }
+  .msg-ai table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 8px 0; }
+  .msg-ai th { background: var(--surface); padding: 5px 8px; text-align: left; color: var(--accent2); font-weight: 500; border-bottom: 1px solid var(--border); }
+  .msg-ai td { padding: 4px 8px; border-bottom: 1px solid var(--border); color: var(--text2); }
+  .msg-ai strong { color: var(--text); font-weight: 500; }
+  .msg-ai em { color: var(--text2); }
+  .msg-ai hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+  .msg-ai blockquote { border-left: 2px solid var(--accent); padding-left: 10px; margin: 6px 0; color: var(--text2); font-style: italic; }
 
   .chat-input-row { display: flex; gap: 8px; }
   .chat-input-row input { flex: 1; }
@@ -378,6 +394,7 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </head>
 <body>
 
@@ -888,7 +905,13 @@ async function sendChat() {
   const r = await fetch(`${API}/chat`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira, question}) });
   const text = await r.text();
   document.getElementById('msg-pending').id = '';
-  document.querySelector('.msg-ai:last-child').innerHTML = escHtml(text).replace(/\[\[([^\]]+)\]\]/g, '<code style="color:var(--cyan)">$1</code>');
+  var lastMsg = document.querySelector('.msg-ai:last-child');
+  if (lastMsg && typeof marked !== 'undefined') {
+    var rendered = marked.parse(text);
+    lastMsg.innerHTML = rendered.replace(/\[\[([^\]]+)\]\]/g, '<code style="color:var(--cyan)">[[' + '$1' + ']]</code>');
+  } else if (lastMsg) {
+    lastMsg.textContent = text;
+  }
   btn.disabled = false; btn.innerHTML = '<span>↑</span> Спросить';
   msgs.scrollTop = msgs.scrollHeight;
 }
@@ -924,7 +947,14 @@ async function sendChatClaude() {
     });
     const text = await response.text();
     var el = document.getElementById('msg-pending-claude');
-    if (el) { el.id = ''; el.innerHTML = escHtml(text).replace(/\[\[([^\]]+)\]\]/g, '<code style="color:var(--cyan)">$1</code>'); }
+    if (el) {
+      el.id = '';
+      if (typeof marked !== 'undefined') {
+        el.innerHTML = marked.parse(text).replace(/\[\[([^\]]+)\]\]/g, '<code style="color:var(--cyan)">[[' + '$1' + ']]</code>');
+      } else {
+        el.textContent = text;
+      }
+    }
   } catch(e) {
     var el2 = document.getElementById('msg-pending-claude');
     if (el2) { el2.id = ''; el2.textContent = 'Ошибка: ' + e.message; }
@@ -977,7 +1007,12 @@ async function generateArtifact() {
     body: JSON.stringify({ jira, template: template || undefined, section: state.selectedSection, question: question || undefined })
   });
   const text = await r.text();
-  out.textContent = text;
+  if (typeof marked !== 'undefined') {
+    out.innerHTML = marked.parse(text);
+    out.style.whiteSpace = 'normal';
+  } else {
+    out.textContent = text;
+  }
   btn.disabled = false; btn.innerHTML = '<span>◈</span> Сгенерировать';
   document.getElementById('btn-copy-artifact').style.display = 'inline-flex';
 }
