@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Second Brain</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Unbounded:wght@300;400;600&display=swap');
+
+  :root {
+    --bg: #0e0e0f;
+    --surface: #161618;
+    --surface2: #1e1e21;
+    --border: #2a2a2e;
+    --border2: #3a3a3f;
+    --text: #e8e8ea;
+    --text2: #8a8a90;
+    --text3: #5a5a60;
+    --accent: #7c6af7;
+    --accent2: #a594fa;
+    --green: #3ecf6e;
+    --amber: #f5a623;
+    --red: #f05050;
+    --cyan: #38bdf8;
+    --mono: 'JetBrains Mono', monospace;
+    --display: 'Unbounded', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    display: flex;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 24px 0;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 10;
+  }
+
+  .logo {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    color: var(--accent2);
+    padding: 0 20px 24px;
+    text-transform: uppercase;
+  }
+  .logo span { color: var(--text3); font-weight: 300; }
+
+  .nav-section { padding: 0 12px; margin-bottom: 4px; }
+  .nav-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    text-transform: uppercase;
+    padding: 0 8px;
+    margin-bottom: 4px;
+  }
+
+  .nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
+    background: none;
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 6px;
+    text-align: left;
+    transition: all 0.15s;
+  }
+  .nav-btn:hover { background: var(--surface2); color: var(--text); }
+  .nav-btn.active { background: rgba(124,106,247,0.12); color: var(--accent2); }
+  .nav-btn .icon { font-size: 14px; width: 18px; text-align: center; }
+
+  .projects-list { padding: 8px 12px; flex: 1; overflow-y: auto; }
+  .proj-item {
+    padding: 7px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text2);
+    font-size: 11px;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .proj-item:hover { background: var(--surface2); color: var(--text); }
+  .proj-item.active { background: rgba(124,106,247,0.12); color: var(--accent2); }
+  .proj-badge {
+    font-size: 10px;
+    background: var(--surface2);
+    color: var(--text3);
+    padding: 2px 6px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+  .proj-item.active .proj-badge { background: rgba(124,106,247,0.2); color: var(--accent); }
+
+  /* Main */
+  .main {
+    margin-left: 220px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    height: 52px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 28px;
+    gap: 16px;
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .topbar-title {
+    font-family: var(--display);
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text2);
+  }
+  .topbar-title strong { color: var(--text); font-weight: 600; }
+  .topbar-sep { color: var(--border2); }
+
+  .content { padding: 28px; flex: 1; max-width: 900px; }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--accent2);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Form elements */
+  label { display: block; color: var(--text2); font-size: 11px; margin-bottom: 6px; }
+
+  input[type=text], select, textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 12px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input[type=text]:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  select option { background: var(--surface2); }
+
+  textarea { min-height: 80px; resize: vertical; }
+  #artifact-question { min-height: 200px; resize: vertical; }
+
+  .field { margin-bottom: 14px; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost { background: var(--surface2); color: var(--text2); border: 1px solid var(--border2); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--border); }
+  .btn-danger { background: rgba(240,80,80,0.1); color: var(--red); border: 1px solid rgba(240,80,80,0.2); }
+  .btn-danger:hover { background: rgba(240,80,80,0.2); }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  /* Terminal output */
+  .terminal {
+    background: #0a0a0b;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 11px;
+    line-height: 1.7;
+    color: #a0f0a0;
+    max-height: 320px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-top: 12px;
+    display: none;
+  }
+  .terminal.visible { display: block; }
+  .terminal .warn { color: var(--amber); }
+  .terminal .err { color: var(--red); }
+  .terminal .info { color: var(--cyan); }
+
+  /* Chat */
+  .chat-messages {
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .msg {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    max-width: 85%;
+  }
+  .msg-user {
+    background: rgba(124,106,247,0.12);
+    border: 1px solid rgba(124,106,247,0.2);
+    color: var(--accent2);
+    align-self: flex-end;
+  }
+  .msg-ai {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    align-self: flex-start;
+  }
+  .msg-ai .src { font-size: 10px; color: var(--text3); margin-top: 6px; }
+
+  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input-row input { flex: 1; }
+
+  /* Skipped files */
+  .file-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .file-item input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; flex-shrink: 0; }
+  .file-name { flex: 1; font-size: 11px; color: var(--text); }
+  .file-type { font-size: 10px; color: var(--text3); background: var(--surface); padding: 2px 7px; border-radius: 10px; }
+
+  /* Artifact */
+  .section-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .section-item {
+    padding: 8px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text2);
+    transition: all 0.15s;
+    text-align: left;
+    width: 100%;
+    font-family: var(--mono);
+  }
+  .section-item:hover { border-color: var(--accent); color: var(--text); }
+  .section-item.selected { border-color: var(--accent); background: rgba(124,106,247,0.08); color: var(--accent2); }
+
+  .artifact-output {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--text);
+    white-space: pre-wrap;
+    margin-top: 14px;
+    max-height: 500px;
+    overflow-y: auto;
+    display: none;
+  }
+  .artifact-output.visible { display: block; }
+
+  /* Stats */
+  .stats-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .stat {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .stat-val {
+    font-family: var(--display);
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--accent2);
+    margin-bottom: 4px;
+  }
+  .stat-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* Spinner */
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--border2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Tag */
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(56,189,248,0.1);
+    color: var(--cyan);
+    border: 1px solid rgba(56,189,248,0.2);
+  }
+  .tag.green { background: rgba(62,207,110,0.1); color: var(--green); border-color: rgba(62,207,110,0.2); }
+  .tag.amber { background: rgba(245,166,35,0.1); color: var(--amber); border-color: rgba(245,166,35,0.2); }
+
+  .empty { color: var(--text3); font-size: 12px; padding: 20px 0; text-align: center; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="logo" onclick="showView('ingest')" style="cursor:pointer" title="На главную">Second<span>Brain</span></div>
+
+  <div class="nav-section">
+    <div class="nav-label">Навигация</div>
+    <button class="nav-btn active" onclick="showView('ingest')" id="nav-ingest">
+      <span class="icon">⊕</span> Загрузить проект
+    </button>
+    <button class="nav-btn" onclick="showView('skipped')" id="nav-skipped">
+      <span class="icon">⚠</span> Пропущенные файлы
+    </button>
+    <button class="nav-btn" onclick="showView('chat')" id="nav-chat">
+      <span class="icon">◎</span> Спросить модель
+    </button>
+    <button class="nav-btn" onclick="showView('artifact')" id="nav-artifact">
+      <span class="icon">◈</span> Генерация артефакта
+    </button>
+    <button class="nav-btn" onclick="showView('settings')" id="nav-settings">
+      <span class="icon">⚙</span> Настройки
+    </button>
+  </div>
+
+  <div style="padding: 12px 12px 4px; margin-top: 8px;">
+    <div class="nav-label">Проекты</div>
+  </div>
+  <div class="projects-list" id="projects-list">
+    <div class="empty">загрузка...</div>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="topbar">
+    <span class="topbar-title">
+      <strong id="view-title">Загрузить проект</strong>
+    </span>
+    <span class="topbar-sep">·</span>
+    <span class="topbar-title" id="project-label">проект не выбран</span>
+  </div>
+
+  <div class="content">
+
+    <!-- INGEST VIEW -->
+    <div id="view-ingest">
+      <div class="card">
+        <div class="card-title">⊕ Новый проект</div>
+        <div class="field">
+          <label>Jira тикет</label>
+          <input type="text" id="ingest-jira" placeholder="ARCH-123" />
+        </div>
+        <div class="field">
+          <label>Путь к папке с документами</label>
+          <input type="text" id="ingest-path" placeholder="/path/to/project/folder" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="runIngest()" id="btn-ingest">
+            <span>⊕</span> Загрузить и конвертировать
+          </button>
+          <button class="btn btn-ghost" onclick="runProcess()" id="btn-process" style="display:none">
+            <span>▶</span> Обработать через Ollama
+          </button>
+        </div>
+        <div class="terminal" id="terminal-ingest"></div>
+      </div>
+
+      <div id="projects-overview"></div>
+    </div>
+
+    <!-- SKIPPED VIEW -->
+    <div id="view-skipped" style="display:none">
+      <div class="card">
+        <div class="card-title">⚠ Пропущенные файлы</div>
+        <div class="field">
+          <label>Проект</label>
+          <select id="skipped-jira" onchange="loadSkipped()">
+            <option value="">— выберите проект —</option>
+          </select>
+        </div>
+        <div id="skipped-list"><div class="empty">Выберите проект</div></div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn btn-primary" onclick="reprocessSelected()" id="btn-reprocess" disabled>
+            <span>↺</span> Переобработать выбранные
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="selectAllSkipped()">Выбрать все</button>
+        </div>
+        <div class="terminal" id="terminal-reprocess"></div>
+      </div>
+    </div>
+
+    <!-- CHAT VIEW -->
+    <div id="view-chat" style="display:none">
+      <div class="card">
+        <div class="card-title">◎ Вопрос к базе знаний</div>
+        <div class="field">
+          <label>Проект</label>
+          <select id="chat-jira">
+            <option value="">— выберите проект —</option>
+          </select>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+          <div class="empty">Задайте вопрос по проекту</div>
+        </div>
+        <div class="field">
+          <textarea id="chat-input" placeholder="Какие риски интеграции выявлены?" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}" style="min-height:100px;resize:vertical;margin-bottom:8px"></textarea>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="sendChat()" id="btn-chat">
+              <span>↑</span> Ollama
+            </button>
+            <button class="btn btn-ghost" onclick="sendChatClaude()" id="btn-chat-claude" style="background:rgba(124,106,247,0.08);border-color:rgba(124,106,247,0.3);color:var(--accent2)">
+              <span>✦</span> Claude API
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ARTIFACT VIEW -->
+    <div id="view-artifact" style="display:none">
+      <div class="card">
+        <div class="card-title">◈ Генерация раздела артефакта</div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="field">
+            <label>Проект</label>
+            <select id="artifact-jira" onchange="updateArtifactContext()">
+              <option value="">— проект —</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Тип артефакта</label>
+            <select id="artifact-type" onchange="loadTemplateSections()">
+              <option value="">— выбрать из библиотеки —</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" id="upload-template-block">
+          <label>или загрузить свой шаблон (.md)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="file" id="template-file" accept=".md" onchange="loadCustomTemplate()" style="flex:1;padding:6px 8px;font-size:11px">
+            <span id="custom-template-badge" style="display:none" class="tag green">загружен</span>
+          </div>
+          <div id="custom-template-name" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
+        </div>
+
+        <div id="artifact-sections-block" style="display:none">
+          <label>Раздел шаблона (опционально — выбери или задай вопрос напрямую)</label>
+          <div class="section-grid" id="artifact-sections"></div>
+        </div>
+
+        <div class="field" style="margin-top:14px">
+          <label>Вопрос / задача для модели</label>
+          <textarea id="artifact-question" placeholder="Например: заполни раздел бизнес-контекста на основе знаний из базы" style="min-height:200px;resize:vertical"></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="generateArtifact()" id="btn-artifact">
+            <span>◈</span> Ollama
+          </button>
+          <button class="btn btn-ghost" onclick="generateArtifactClaude()" id="btn-artifact-claude" style="background:rgba(124,106,247,0.08);border-color:rgba(124,106,247,0.3);color:var(--accent2)">
+            <span>✦</span> Claude API
+          </button>
+          <button class="btn btn-ghost" onclick="copyArtifact()" id="btn-copy-artifact" style="display:none">
+            <span>⎘</span> Копировать
+          </button>
+        </div>
+
+        <div class="artifact-output" id="artifact-output"></div>
+      </div>
+    </div>
+
+    <!-- SETTINGS VIEW -->
+    <div id="view-settings" style="display:none">
+      <div class="card">
+        <div class="card-title">⚙ API ключи</div>
+
+        <div class="field">
+          <label>Claude модель</label>
+          <div style="display:flex;gap:8px">
+            <select id="claude-model" style="flex:1" onchange="if(this.value==='custom')document.getElementById('model-custom').style.display='block';else document.getElementById('model-custom').style.display='none'">
+              <option value="claude-sonnet-4-6">claude-sonnet-4-6 (рекомендуется)</option>
+              <option value="claude-opus-4-6">claude-opus-4-6 (мощнее, дороже)</option>
+              <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001 (быстрее, дешевле)</option>
+              <option value="custom">— ввести вручную —</option>
+            </select>
+          </div>
+          <input type="text" id="model-custom" placeholder="claude-..." style="margin-top:6px;display:none" />
+        </div>
+
+        <div class="field">
+          <label>Anthropic API Key</label>
+          <div style="display:flex;gap:8px">
+            <input type="password" id="anthropic-key" placeholder="sk-ant-..." style="flex:1;font-family:var(--mono)" />
+            <button class="btn btn-ghost btn-sm" onclick="toggleKeyVisibility()">👁</button>
+          </div>
+          <div id="key-status" style="font-size:11px;margin-top:6px;color:var(--text3)">загрузка...</div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveSettings()">
+            <span>✓</span> Сохранить
+          </button>
+          <button class="btn btn-ghost" onclick="testClaude()">
+            <span>✦</span> Проверить соединение
+          </button>
+        </div>
+
+        <div id="settings-result" style="margin-top:12px;font-size:12px;color:var(--green);display:none"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">◉ О системе</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.8">
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span>Локальная модель</span><span style="color:var(--text)">llama3.1:8b (Ollama)</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span>Claude API модель</span><span style="color:var(--text)">claude-sonnet-4-20250514</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span>Данные в облако</span><span style="color:var(--green)">только knowledge/ (обезличенное)</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0">
+            <span>Raw материалы</span><span style="color:var(--amber)">только локально</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+const API = 'http://localhost:3030/api';
+let state = { view: 'ingest', project: null, projects: [], templates: [], selectedSection: null, customTemplate: null, customTemplateSections: [] };
+
+// === INIT ===
+async function init() {
+  await Promise.all([loadProjects(), loadTemplates()]);
+  renderProjectsList();
+  populateSelects();
+  renderOverview();
+}
+
+async function loadProjects() {
+  const r = await fetch(`${API}/projects`).catch(() => ({ json: () => [] }));
+  state.projects = await r.json().catch(() => []);
+}
+
+async function loadTemplates() {
+  const r = await fetch(`${API}/templates`).catch(() => ({ json: () => [] }));
+  state.templates = await r.json().catch(() => []);
+}
+
+function renderProjectsList() {
+  const el = document.getElementById('projects-list');
+  if (!state.projects.length) { el.innerHTML = '<div class="empty">нет проектов</div>'; return; }
+  el.innerHTML = state.projects.map(p => `
+    <div class="proj-item ${state.project === p.name ? 'active' : ''}" onclick="selectProject('${p.name}')">
+      <span style="flex:1">${p.name}</span>
+      <span class="proj-badge">${p.processedRaw}/${p.totalRaw}</span>
+      <span onclick="event.stopPropagation();deleteProject('${p.name}')" title="Удалить проект" style="color:var(--text3);cursor:pointer;padding:0 2px;font-size:12px;line-height:1" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text3)'">✕</span>
+    </div>`).join('');
+}
+
+function populateSelects() {
+  const opts = state.projects.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+  ['skipped-jira','chat-jira','artifact-jira'].forEach(id => {
+    const el = document.getElementById(id);
+    const prev = el.value;
+    el.innerHTML = '<option value="">— выберите проект —</option>' + opts;
+    if (prev) el.value = prev;
+  });
+  const tmplOpts = state.templates.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+  document.getElementById('artifact-type').innerHTML = '<option value="">— шаблон —</option>' + tmplOpts;
+  if (state.project) {
+    ['skipped-jira','chat-jira','artifact-jira'].forEach(id => {
+      document.getElementById(id).value = state.project;
+    });
+  }
+}
+
+function renderOverview() {
+  const el = document.getElementById('projects-overview');
+  // Показываем кнопку Обработать если есть выбранный проект
+  const procBtn = document.getElementById('btn-process');
+  if (procBtn && state.project) {
+    procBtn.style.display = 'inline-flex';
+    procBtn.setAttribute('data-jira', state.project);
+  }
+  if (!state.projects.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title">◉ Проекты в базе знаний</div>
+      <div class="stats-row">
+        <div class="stat"><div class="stat-val">${state.projects.length}</div><div class="stat-label">Проектов</div></div>
+        <div class="stat"><div class="stat-val">${state.projects.reduce((a,p) => a+p.totalRaw,0)}</div><div class="stat-label">Файлов raw</div></div>
+        <div class="stat"><div class="stat-val">${state.projects.reduce((a,p) => a+p.files.length,0)}</div><div class="stat-label">Knowledge файлов</div></div>
+      </div>
+      ${state.projects.map(p => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border)">
+          <span style="flex:1;color:var(--text)">${p.name}</span>
+          <span class="tag">${p.files.join(', ')}</span>
+          <span class="tag amber">${p.processedRaw}/${p.totalRaw} обработано</span>
+        </div>`).join('')}
+    </div>`;
+}
+
+function selectProject(name) {
+  state.project = name;
+  document.getElementById('project-label').textContent = name;
+  renderProjectsList();
+  populateSelects();
+  document.getElementById('ingest-jira').value = name;
+}
+
+// === REPLACE FILE ===
+async function replaceFile(input, rawFile) {
+  const jira = document.getElementById('skipped-jira').value;
+  if (!jira || !input.files[0]) return;
+  const file = input.files[0];
+  const label = input.parentElement;
+  label.textContent = '...';
+
+  const formData = new FormData();
+  formData.append('jira', jira);
+  formData.append('rawFile', rawFile);
+  formData.append('file', file);
+
+  const term = document.getElementById('terminal-reprocess');
+  term.className = 'terminal visible';
+  term.textContent = 'Загружаю замену: ' + file.name + '...\n';
+
+  const r = await fetch(API + '/replace-file', { method: 'POST', body: formData });
+  const text = await r.text();
+  term.textContent += text;
+
+  if (text.includes('[ok]')) {
+    term.textContent += '\nГотово — теперь выбери файл и нажми "Переобработать"';
+    await loadSkipped();
+  } else {
+    term.textContent += '\n[error] Что-то пошло не так';
+    label.textContent = '⇪ Заменить';
+  }
+}
+
+// === DELETE PROJECT ===
+async function deleteProject(name) {
+  if (!confirm('Удалить проект ' + name + '?\n\nБудут удалены:\n• raw/' + name + '/\n• knowledge/projects/' + name + '/\n\nОтменить нельзя.')) return;
+  const r = await fetch(API + '/project/' + name, { method: 'DELETE' });
+  const data = await r.json();
+  if (data.ok) {
+    if (state.project === name) {
+      state.project = null;
+      document.getElementById('project-label').textContent = 'проект не выбран';
+    }
+    await loadProjects();
+    renderProjectsList();
+    populateSelects();
+    renderOverview();
+  } else {
+    alert('Ошибка: ' + (data.error || 'неизвестная'));
+  }
+}
+
+// === VIEWS ===
+function showView(view) {
+  state.view = view;
+  ['ingest','skipped','chat','artifact','settings'].forEach(v => {
+    document.getElementById(`view-${v}`).style.display = v === view ? 'block' : 'none';
+    document.getElementById(`nav-${v}`).classList.toggle('active', v === view);
+  });
+  const titles = { ingest:'Загрузить проект', skipped:'Пропущенные файлы', chat:'Спросить модель', artifact:'Генерация артефакта', settings:'Настройки' };
+  document.getElementById('view-title').textContent = titles[view];
+  if (view === 'skipped' && state.project) loadSkipped();
+}
+
+// === INGEST ===
+async function runIngest() {
+  const jira = document.getElementById('ingest-jira').value.trim();
+  const path = document.getElementById('ingest-path').value.trim();
+  if (!jira || !path) return alert('Укажи Jira тикет и путь к папке');
+  const btn = document.getElementById('btn-ingest');
+  const term = document.getElementById('terminal-ingest');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Загружаю...';
+  term.className = 'terminal visible'; term.textContent = '';
+
+  const r = await fetch(`${API}/ingest`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira,path}) });
+  const reader = r.body.getReader(); const decoder = new TextDecoder();
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    term.textContent += colorize(chunk);
+    term.scrollTop = term.scrollHeight;
+  }
+  btn.disabled = false; btn.innerHTML = '<span>⊕</span> Загрузить и конвертировать';
+  // Показываем кнопку обработки всегда — даже если были ошибки конвертации
+  const procBtn = document.getElementById('btn-process');
+  procBtn.style.display = 'inline-flex';
+  procBtn.setAttribute('data-jira', jira);
+  selectProject(jira);
+  await loadProjects(); renderProjectsList(); renderOverview();
+}
+
+async function runProcess() {
+  const jira = document.getElementById('btn-process').getAttribute('data-jira') || state.project;
+  if (!jira) return alert('Выбери проект');
+  const btn = document.getElementById('btn-process');
+  const term = document.getElementById('terminal-ingest');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Обрабатываю...';
+  term.className = 'terminal visible';
+
+  const r = await fetch(`${API}/process`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira}) });
+  const reader = r.body.getReader(); const decoder = new TextDecoder();
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    term.textContent += decoder.decode(value);
+    term.scrollTop = term.scrollHeight;
+  }
+  btn.disabled = false; btn.innerHTML = '<span>▶</span> Обработать через Ollama';
+  await loadProjects(); renderProjectsList(); renderOverview();
+}
+
+// === SKIPPED ===
+async function loadSkipped() {
+  const jira = document.getElementById('skipped-jira').value;
+  if (!jira) return;
+  selectProject(jira);
+  const r = await fetch(`${API}/skipped/${jira}`);
+  const files = await r.json();
+  const el = document.getElementById('skipped-list');
+  if (!files.length) { el.innerHTML = '<div class="empty" style="color:var(--green)">✓ Все файлы обработаны</div>'; return; }
+  var fileListHtml = '<div class="file-list">';
+  files.forEach(function(f) {
+    var isFailed = f.type === 'pdf-scan-failed';
+    var cb = '<input type="checkbox" class="skip-cb" value="' + escHtml(f.file) + '" onchange="updateReprocessBtn()">';
+    var name = '<span class="file-name" style="flex:1">' + escHtml(f.file) + '</span>';
+    var badge = '<span class="file-type"' + (isFailed ? ' style="color:var(--amber)"' : '') + '>' + escHtml(f.type) + '</span>';
+    var reason = f.reason ? '<span style="font-size:10px;color:var(--text3);margin-left:4px">' + escHtml(f.reason) + '</span>' : '';
+    var replaceBtn = '';
+    if (isFailed) {
+      var inputId = 'rep_' + f.file.replace(/[^a-z0-9]/gi, '_');
+      replaceBtn = '<label class="btn btn-ghost btn-sm" style="cursor:pointer;margin-left:6px" for="' + inputId + '">&#x21EA; Заменить</label>' +
+        '<input id="' + inputId + '" type="file" accept=".md,.docx,.txt,.png,.jpg,.jpeg,.xlsx,.pptx" style="display:none" data-rawfile="' + escHtml(f.file) + '" onchange="replaceFile(this)">';
+    }
+    fileListHtml += '<div class="file-item" style="flex-wrap:wrap">' + cb + name + badge + reason + replaceBtn + '</div>';
+  });
+  fileListHtml += '</div>';
+  el.innerHTML = fileListHtml;
+  updateReprocessBtn();
+}
+
+function selectAllSkipped() {
+  document.querySelectorAll('.skip-cb').forEach(cb => cb.checked = true);
+  updateReprocessBtn();
+}
+
+function updateReprocessBtn() {
+  const any = [...document.querySelectorAll('.skip-cb')].some(cb => cb.checked);
+  document.getElementById('btn-reprocess').disabled = !any;
+}
+
+async function reprocessSelected() {
+  const jira = document.getElementById('skipped-jira').value;
+  const files = [...document.querySelectorAll('.skip-cb:checked')].map(cb => cb.value);
+  if (!jira || !files.length) return;
+
+  await fetch(`${API}/reprocess`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira, files}) });
+
+  const btn = document.getElementById('btn-reprocess');
+  const term = document.getElementById('terminal-reprocess');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Обрабатываю...';
+  term.className = 'terminal visible'; term.textContent = '';
+
+  const r = await fetch(`${API}/process`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira}) });
+  const reader = r.body.getReader(); const decoder = new TextDecoder();
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    term.textContent += decoder.decode(value);
+    term.scrollTop = term.scrollHeight;
+  }
+  btn.innerHTML = '<span>↺</span> Переобработать выбранные';
+  await loadSkipped();
+  await loadProjects(); renderProjectsList();
+}
+
+// === CHAT ===
+async function sendChat() {
+  const jira = document.getElementById('chat-jira').value;
+  const question = document.getElementById('chat-input').value.trim();
+  if (!jira || !question) return;
+  selectProject(jira);
+
+  const msgs = document.getElementById('chat-messages');
+  if (msgs.querySelector('.empty')) msgs.innerHTML = '';
+  msgs.innerHTML += `<div class="msg msg-user">${escHtml(question)}</div>`;
+  document.getElementById('chat-input').value = '';
+
+  const btn = document.getElementById('btn-chat');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+  msgs.innerHTML += `<div class="msg msg-ai" id="msg-pending">...</div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+
+  const r = await fetch(`${API}/chat`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira, question}) });
+  const text = await r.text();
+  document.getElementById('msg-pending').id = '';
+  document.querySelector('.msg-ai:last-child').innerHTML = escHtml(text).replace(/\[\[([^\]]+)\]\]/g, '<code style="color:var(--cyan)">$1</code>');
+  btn.disabled = false; btn.innerHTML = '<span>↑</span> Спросить';
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// === CHAT CLAUDE ===
+async function sendChatClaude() {
+  const jira = document.getElementById('chat-jira').value;
+  const question = document.getElementById('chat-input').value.trim();
+  if (!jira || !question) return;
+  selectProject(jira);
+
+  const msgs = document.getElementById('chat-messages');
+  if (msgs.querySelector('.empty')) msgs.innerHTML = '';
+  msgs.innerHTML += '<div class="msg msg-user">' + escHtml(question) + '</div>';
+  document.getElementById('chat-input').value = '';
+
+  const btn = document.getElementById('btn-chat-claude');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+  msgs.innerHTML += '<div class="msg msg-ai" id="msg-pending-claude">...</div>';
+  msgs.scrollTop = msgs.scrollHeight;
+
+  const kR = await fetch(API + '/knowledge/' + jira).catch(() => null);
+  const knowledge = kR ? await kR.text().catch(() => '') : '';
+
+  var systemP = 'Ты Solution Architect в телеком IT-компании. Отвечаешь по-русски, конкретно, со ссылками на источники [[filename]] из базы знаний проекта.';
+  var userP = 'Проект: ' + jira + '\n\nБаза знаний:\n' + knowledge.slice(0, 12000) + '\n\nВопрос: ' + question;
+
+  try {
+    const response = await fetch(API + '/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system: systemP, userPrompt: userP, max_tokens: 1000 })
+    });
+    const text = await response.text();
+    var el = document.getElementById('msg-pending-claude');
+    if (el) { el.id = ''; el.innerHTML = escHtml(text).replace(/\[\[([^\]]+)\]\]/g, '<code style="color:var(--cyan)">$1</code>'); }
+  } catch(e) {
+    var el2 = document.getElementById('msg-pending-claude');
+    if (el2) { el2.id = ''; el2.textContent = 'Ошибка: ' + e.message; }
+  }
+
+  btn.disabled = false; btn.innerHTML = '<span>✦</span> Claude API';
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// === ARTIFACT ===
+async function loadTemplateSections() {
+  const type = document.getElementById('artifact-type').value;
+  if (type) { state.customTemplate = null; document.getElementById('custom-template-badge').style.display='none'; document.getElementById('custom-template-name').textContent=''; document.getElementById('template-file').value=''; }
+  const block = document.getElementById('artifact-sections-block');
+  const grid = document.getElementById('artifact-sections');
+  state.selectedSection = null;
+  if (!type) { block.style.display = 'none'; return; }
+  const tmpl = state.templates.find(t => t.name === type);
+  if (!tmpl?.sections?.length) { block.style.display = 'none'; return; }
+  grid.innerHTML = tmpl.sections.map(s => `
+    <button class="section-item" onclick="selectSection(this, '${escHtml(s)}')">${escHtml(s)}</button>`).join('');
+  block.style.display = 'block';
+}
+
+function selectSection(el, section) {
+  document.querySelectorAll('.section-item').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  state.selectedSection = section;
+  document.getElementById('artifact-question').value = `Заполни раздел "${section}" на основе базы знаний проекта`;
+}
+
+function updateArtifactContext() {
+  const jira = document.getElementById('artifact-jira').value;
+  if (jira) selectProject(jira);
+}
+
+async function generateArtifact() {
+  const jira = document.getElementById('artifact-jira').value;
+  const template = document.getElementById('artifact-type').value;
+  const question = document.getElementById('artifact-question').value.trim();
+  if (!jira) return alert('Выбери проект');
+
+  const btn = document.getElementById('btn-artifact');
+  const out = document.getElementById('artifact-output');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Генерирую...';
+  out.className = 'artifact-output visible'; out.textContent = '...';
+
+  const r = await fetch(`${API}/artifact`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ jira, template: template || undefined, section: state.selectedSection, question: question || undefined })
+  });
+  const text = await r.text();
+  out.textContent = text;
+  btn.disabled = false; btn.innerHTML = '<span>◈</span> Сгенерировать';
+  document.getElementById('btn-copy-artifact').style.display = 'inline-flex';
+}
+
+function copyArtifact() {
+  navigator.clipboard.writeText(document.getElementById('artifact-output').textContent);
+  const btn = document.getElementById('btn-copy-artifact');
+  btn.innerHTML = '<span>✓</span> Скопировано';
+  setTimeout(() => btn.innerHTML = '<span>⎘</span> Копировать', 2000);
+}
+
+// === CUSTOM TEMPLATE ===
+async function loadCustomTemplate() {
+  const file = document.getElementById('template-file').files[0];
+  if (!file) return;
+  const text = await file.text();
+  state.customTemplate = { name: file.name.replace('.md',''), content: text };
+  // Парсим разделы
+  const sections = [...text.matchAll(/^#{1,3} (.+)$/gm)].map(m => m[1]);
+  state.customTemplateSections = sections;
+  // Сбрасываем выбор из библиотеки
+  document.getElementById('artifact-type').value = '';
+  // Показываем бейдж
+  document.getElementById('custom-template-badge').style.display = 'inline-block';
+  document.getElementById('custom-template-name').textContent = file.name + ' · ' + sections.length + ' разделов';
+  // Рендерим секции
+  renderCustomSections(sections);
+}
+
+function renderCustomSections(sections) {
+  const block = document.getElementById('artifact-sections-block');
+  const grid = document.getElementById('artifact-sections');
+  state.selectedSection = null;
+  if (!sections.length) { block.style.display = 'none'; return; }
+  grid.innerHTML = sections.map(s => `
+    <button class="section-item" onclick="selectSection(this, '${escHtml(s)}')">${escHtml(s)}</button>`).join('');
+  block.style.display = 'block';
+}
+
+// === CLAUDE API ===
+async function generateArtifactClaude() {
+  const jira = document.getElementById('artifact-jira').value;
+  const template = document.getElementById('artifact-type').value;
+  const question = document.getElementById('artifact-question').value.trim();
+  if (!jira) return alert('Выбери проект');
+
+  const btn = document.getElementById('btn-artifact-claude');
+  const out = document.getElementById('artifact-output');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Claude...';
+  out.className = 'artifact-output visible';
+  out.textContent = '...';
+
+  // Получаем контекст knowledge base
+  const ctxR = await fetch(`${API}/projects`);
+  const projects = await ctxR.json();
+
+  // Собираем шаблон
+  let tmplContent = '';
+  let tmplName = template || (state.customTemplate?.name) || '';
+  if (state.customTemplate && !template) {
+    tmplContent = state.customTemplate.content.slice(0, 3000);
+  } else if (template) {
+    const tr = await fetch(`${API}/template/${template}`);
+    const td = await tr.json();
+    tmplContent = (td.content || '').slice(0, 3000);
+  }
+
+  // Получаем knowledge context через наш API
+  const kR = await fetch(`${API}/knowledge/${jira}`).catch(() => null);
+  const knowledge = kR ? await kR.text().catch(() => '') : '';
+
+  const sectionNote = state.selectedSection ? `Сфокусируйся на разделе: "${state.selectedSection}".` : '';
+  var systemPrompt = 'Ты опытный Solution Architect в телеком IT-компании. Работаешь по процессу EACMF. Помогаешь заполнять архитектурные артефакты: HLD, HLIS, AN, SPFA, BRD. Отвечаешь по-русски, конкретно, со ссылками на источники из базы знаний.';
+
+  var parts2 = ['Проект: ' + jira];
+  if (sectionNote) parts2.push(sectionNote);
+  if (question) parts2.push('Задача: ' + question);
+  if (tmplName && tmplContent) parts2.push('Шаблон (' + tmplName + '):\n' + tmplContent);
+  parts2.push('\nБаза знаний проекта:\n' + knowledge.slice(0, 12000));
+  parts2.push('Сгенерируй конкретный текст для документа. Если данных недостаточно — укажи что нужно уточнить.');
+  var userPrompt = parts2.join('\n');
+
+  try {
+    const response = await fetch(API + '/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system: systemPrompt, userPrompt: userPrompt, max_tokens: 2000 })
+    });
+    const text = await response.text();
+    out.textContent = text;
+    document.getElementById('btn-copy-artifact').style.display = 'inline-flex';
+  } catch(e) {
+    out.textContent = 'Ошибка: ' + e.message;
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<span>✦</span> Claude API';
+}
+
+// === UTILS ===
+function colorize(text) { return text; }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// === SETTINGS ===
+async function loadSettings() {
+  const r = await fetch(API + '/settings').catch(() => null);
+  if (!r) return;
+  const data = await r.json().catch(() => ({}));
+  const el = document.getElementById('key-status');
+  if (!el) return;
+  if (data.hasAnthropicKey) {
+    el.style.color = 'var(--green)';
+    el.textContent = '✓ Ключ сохранён ' + (data.keyPreview || '');
+  } else {
+    el.style.color = 'var(--amber)';
+    el.textContent = '⚠ Ключ не настроен — Claude API недоступен';
+  }
+  // Устанавливаем текущую модель
+  if (data.claudeModel) {
+    const sel = document.getElementById('claude-model');
+    if (sel) {
+      var found = false;
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === data.claudeModel) { sel.selectedIndex = i; found = true; break; }
+      }
+      if (!found) {
+        sel.value = 'custom';
+        var ci = document.getElementById('model-custom');
+        if (ci) { ci.value = data.claudeModel; ci.style.display = 'block'; }
+      }
+    }
+  }
+}
+
+async function saveSettings() {
+  const key = document.getElementById('anthropic-key').value.trim();
+  if (!key) return alert('Введи API ключ');
+  const modelSelect = document.getElementById('claude-model');
+  const modelCustom = document.getElementById('model-custom');
+  const model = modelSelect.value === 'custom' ? modelCustom.value.trim() : modelSelect.value;
+  const body = { ANTHROPIC_API_KEY: key };
+  if (model) body.CLAUDE_MODEL = model;
+  const r = await fetch(API + '/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  const data = await r.json();
+  if (data.ok) {
+    document.getElementById('anthropic-key').value = '';
+    document.getElementById('settings-result').style.display = 'block';
+    document.getElementById('settings-result').textContent = '✓ Ключ сохранён. Перезапусти сервер чтобы изменения вступили в силу.';
+    loadSettings();
+  }
+}
+
+function toggleKeyVisibility() {
+  const el = document.getElementById('anthropic-key');
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+async function testClaude() {
+  const btn = event.target;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Проверяю...';
+  const r = await fetch(API + '/claude', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ userPrompt: 'Скажи "OK" одним словом.', max_tokens: 10 })
+  });
+  const text = await r.text();
+  const res = document.getElementById('settings-result');
+  res.style.display = 'block';
+  if (text.includes('OK') || text.toLowerCase().includes('ok')) {
+    res.style.color = 'var(--green)';
+    res.textContent = '✓ Claude API работает';
+  } else if (text.includes('ключ не настроен') || text.includes('Ошибка')) {
+    res.style.color = 'var(--red)';
+    res.textContent = '✗ ' + text;
+  } else {
+    res.style.color = 'var(--green)';
+    res.textContent = '✓ Ответ получен: ' + text.slice(0, 50);
+  }
+  btn.disabled = false; btn.innerHTML = '<span>✦</span> Проверить соединение';
+}
+
+init();
+loadSettings();
+</script>
+</body>
+</html>
