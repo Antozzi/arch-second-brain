@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 # =============================================================================
-# process.sh — обработка raw/{JIRA-ID}/ через Ollama → knowledge/
-# Артефакты: HLD | AN (IT Bazaar) | SPFA | ADR (EACMF)
+# process.sh v2 — оптимизированный: 1 запрос вместо 7, таймаут, фильтр мусора
 # Использование: ./scripts/process.sh ARCH-123
 # =============================================================================
 
@@ -15,6 +14,8 @@ KNOWLEDGE_DIR="$BRAIN_DIR/knowledge"
 CLAUDE_MD="$BRAIN_DIR/CLAUDE.md"
 MODEL="llama3.1:8b"
 OLLAMA_URL="http://localhost:11434/api/generate"
+MAX_CHARS=4000    # лимит контента на файл
+TIMEOUT=90        # секунд на один запрос
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[process]${NC} $*"; }
@@ -24,36 +25,34 @@ err()  { echo -e "${RED}[error]${NC}   $*" >&2; }
 
 if [[ -z "$JIRA" ]]; then
   err "Использование: $0 <JIRA-ID>"
-  err "Пример: $0 ARCH-123"
   exit 1
 fi
 
 RAW_JIRA="$RAW_DIR/$JIRA"
 KNOWLEDGE_JIRA="$KNOWLEDGE_DIR/projects/$JIRA"
 
-if [[ ! -d "$RAW_JIRA" ]]; then
-  err "Папка не найдена: $RAW_JIRA"
-  err "Сначала запусти: ./scripts/ingest.sh $JIRA /path/to/folder"
-  exit 1
-fi
-
-if ! curl -s "$OLLAMA_URL" > /dev/null 2>&1; then
-  err "Ollama не запущена. Запусти: ollama serve &"
-  exit 1
-fi
-
-if [[ ! -f "$CLAUDE_MD" ]]; then
-  err "CLAUDE.md не найден: $CLAUDE_MD"
-  exit 1
-fi
+[[ ! -d "$RAW_JIRA" ]] && { err "Папка не найдена: $RAW_JIRA"; exit 1; }
+curl -s --max-time 5 "$OLLAMA_URL" > /dev/null 2>&1 || { err "Ollama не запущена. Запусти: ollama serve &"; exit 1; }
+[[ ! -f "$CLAUDE_MD" ]] && { err "CLAUDE.md не найден"; exit 1; }
 
 mkdir -p "$KNOWLEDGE_JIRA"
 SYSTEM_PROMPT="$(cat "$CLAUDE_MD")"
-COUNT_OK=0; COUNT_SKIP=0
+COUNT_OK=0; COUNT_SKIP=0; COUNT_ERR=0
 
-log "Тикет: $JIRA"
-log "Модель: $MODEL"
+log "Тикет: $JIRA | Модель: $MODEL | Лимит: ${MAX_CHARS} символов | Таймаут: ${TIMEOUT}с"
 echo ""
+
+# --- файлы без архитектурного смысла — пропускаем ---
+is_noise() {
+  local name
+  name="$(basename "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$name" in
+    *zoom*|*git-setup*|*quick-start*|*howto*|\
+    *project-info*|*project-structure*|\
+    *index.md*) return 0 ;;
+  esac
+  return 1
+}
 
 mark_processed() {
   sed -i '' 's/^processed: false/processed: true/' "$1"
@@ -63,9 +62,43 @@ get_frontmatter() {
   grep "^${2}:" "$1" | head -1 | sed "s/^${2}: *//" | tr -d '"'
 }
 
-call_ollama() {
-  local prompt="$1"
-  curl -s -X POST "$OLLAMA_URL" \
+# --- один запрос → JSON со всеми измерениями ---
+call_ollama_single() {
+  local content="$1"
+  local ref="$2"
+  local doc_type="$3"
+
+  local spfa_instruction=""
+  [[ "$doc_type" == "spfa" ]] && spfa_instruction='
+8. "spfa": массив SPFA оценок вендора (если есть): [{id, vendor, status, findings, tco, source}]'
+
+  local prompt="Документ: $ref
+Тип: $doc_type
+
+$content
+
+---
+Проанализируй документ и извлеки знания в формате JSON.
+Верни ТОЛЬКО валидный JSON без markdown-обёртки, без пояснений.
+
+Структура ответа:
+{
+  \"business_context\": [{\"id\": \"BC-001\", \"title\": \"\", \"problem\": \"\", \"goals\": \"\", \"scope_in\": \"\", \"scope_out\": \"\", \"source\": \"$ref\", \"tags\": \"#business-context\"}],
+  \"requirements\": [{\"id\": \"BR-001\", \"title\": \"\", \"type\": \"Functional|NFR|Security|Constraint|Assumption\", \"description\": \"\", \"priority\": \"Must|Should|Could\", \"source\": \"$ref\", \"tags\": \"#requirement\"}],
+  \"architecture\": [{\"id\": \"ARCH-001\", \"title\": \"\", \"type\": \"AS-IS|TO-BE|Integration|Scenario\", \"description\": \"\", \"systems\": \"\", \"protocol\": \"\", \"source\": \"$ref\", \"tags\": \"#architecture\"}],
+  \"adrs\": [{\"id\": \"ADR-001\", \"title\": \"\", \"status\": \"Proposed|Accepted\", \"context\": \"\", \"decision\": \"\", \"alternatives\": \"\", \"consequences\": \"\", \"source\": \"$ref\", \"tags\": \"#adr\"}],
+  \"risks\": [{\"id\": \"R-001\", \"title\": \"\", \"category\": \"Technical|Integration|Security|Vendor|Timeline\", \"impact\": \"High|Medium|Low\", \"probability\": \"High|Medium|Low\", \"mitigation\": \"\", \"source\": \"$ref\", \"tags\": \"#risk\"}],
+  \"open_questions\": [{\"id\": \"Q-001\", \"question\": \"\", \"context\": \"\", \"affects\": \"HLD|ADR|Requirements|Architecture\", \"owner\": \"\", \"urgency\": \"Blocker|High|Normal\", \"source\": \"$ref\", \"tags\": \"#open-question\"}],
+  \"stakeholders\": [{\"id\": \"S-001\", \"role\": \"\", \"project\": \"$JIRA\", \"interests\": \"\", \"raci\": \"Responsible|Accountable|Consulted|Informed\", \"source\": \"$ref\", \"tags\": \"#stakeholder\"}]${spfa_instruction}
+}
+
+Правила:
+- Если данных для категории нет — верни пустой массив []
+- НЕ используй реальные имена людей — только роли
+- Каждое поле source = \"$ref\"
+- Только факты из документа; домыслы помечай тегом #hypothesis"
+
+  curl -s --max-time "$TIMEOUT" -X POST "$OLLAMA_URL" \
     -H "Content-Type: application/json" \
     -d "$(jq -n \
       --arg model "$MODEL" \
@@ -75,214 +108,120 @@ call_ollama() {
     )" | jq -r '.response // empty'
 }
 
-update_knowledge_file() {
-  local filename="$1"
-  local header="$2"
-  local content="$3"
-  local target="$KNOWLEDGE_JIRA/${filename}"
+# --- JSON → markdown файлы ---
+json_to_files() {
+  local json="$1"
 
-  [[ -z "$content" || "$content" == "null" ]] && return
-  echo "$content" | grep -qi "НЕТ ДАННЫХ\|нет данных\|NO DATA" && return
+  # вырезаем JSON если модель добавила текст вокруг
+  json="$(echo "$json" | sed -n '/^{/,/^}/p' | head -200)"
+  [[ -z "$json" ]] && return
 
-  if [[ ! -f "$target" ]]; then
-    printf "# %s — %s\n\n%s\n" "$header" "$JIRA" "$content" > "$target"
-    log "Создан: $(basename $target)"
-  else
-    printf "\n---\n\n%s\n" "$content" >> "$target"
-    log "Обновлён: $(basename $target)"
-  fi
+  # функция записи секции
+  write_section() {
+    local key="$1" file="$2" header="$3"
+    local items
+    items="$(echo "$json" | python3 -c "
+import sys,json
+try:
+  d=json.load(sys.stdin)
+  items=d.get('$key',[])
+  if not items: sys.exit(0)
+  for i in items:
+    print('## ' + i.get('id','?') + ' ' + (i.get('title') or i.get('role') or i.get('question','?')))
+    for k,v in i.items():
+      if k not in ('id','title','role','question') and v:
+        print('- **' + k.capitalize() + '**: ' + str(v))
+    print()
+except: pass
+" 2>/dev/null)"
+    [[ -z "$items" ]] && return
+    local target="$KNOWLEDGE_JIRA/$file"
+    if [[ ! -f "$target" ]]; then
+      printf "# %s — %s\n\n%s\n" "$header" "$JIRA" "$items" > "$target"
+      log "Создан: $file"
+    else
+      printf "\n---\n\n%s\n" "$items" >> "$target"
+      log "Обновлён: $file"
+    fi
+  }
+
+  write_section "business_context"  "business-context.md"  "Бизнес-контекст"
+  write_section "requirements"      "requirements.md"       "Требования"
+  write_section "architecture"      "architecture.md"       "Архитектура решения"
+  write_section "adrs"              "adrs.md"               "Architecture Decision Records"
+  write_section "risks"             "risks.md"              "Риски"
+  write_section "open_questions"    "open-questions.md"     "Открытые вопросы"
+  write_section "stakeholders"      "stakeholders.md"       "Стейкхолдеры"
+  write_section "spfa"              "spfa-assessment.md"    "SPFA Оценка вендора"
 }
 
 detect_doc_type() {
   local name
   name="$(basename "$1" | tr '[:upper:]' '[:lower:]')"
-  if echo "$name" | grep -qi "spfa\|feasibility\|vendor\|assessment\|rfp"; then
-    echo "spfa"
-  elif echo "$name" | grep -qi "hld\|high.level"; then
-    echo "hld"
-  elif echo "$name" | grep -qi "bazaar\|справка\|an-\|pre.anal"; then
-    echo "an"
-  else
-    echo "generic"
-  fi
+  echo "$name" | grep -qi "spfa\|feasibility\|vendor\|assessment" && echo "spfa" && return
+  echo "$name" | grep -qi "hld\|high.level" && echo "hld" && return
+  echo "$name" | grep -qi "bazaar\|справка\|an-" && echo "an" && return
+  echo "generic"
 }
 
 # --- основной цикл ---
+TOTAL="$(find "$RAW_JIRA" -name "*.md" -type f | wc -l | tr -d ' ')"
+CURRENT=0
+
 while IFS= read -r -d '' filepath; do
   filename="$(basename "$filepath")"
+  ((CURRENT++))
   processed="$(get_frontmatter "$filepath" "processed")"
 
   if [[ "$processed" == "true" ]]; then
-    info "Пропускаю (уже обработан): $filename"
+    info "[$CURRENT/$TOTAL] Пропускаю (обработан): $filename"
     ((COUNT_SKIP++))
     continue
   fi
 
-  log "Обрабатываю: $filename"
-  doc_type="$(detect_doc_type "$filepath")"
-  info "Тип: $doc_type"
-
-  content="$(awk '/^---/{found++; if(found==2){skip=0; next}} found<2{next} {print}' "$filepath" | head -c 6000)"
-
-  if [[ -z "$(echo "$content" | tr -d '[:space:]')" ]]; then
-    warn "Пустой контент: $filename"
+  if is_noise "$filepath"; then
+    info "[$CURRENT/$TOTAL] Пропускаю (не архитектурный): $filename"
     mark_processed "$filepath"
     ((COUNT_SKIP++))
     continue
   fi
 
+  log "[$CURRENT/$TOTAL] Обрабатываю: $filename"
+
+  content="$(awk '/^---/{found++; if(found==2){skip=0; next}} found<2{next} {print}' "$filepath" | head -c $MAX_CHARS)"
+
+  if [[ -z "$(echo "$content" | tr -d '[:space:]')" ]]; then
+    warn "Пустой контент — пропускаю"
+    mark_processed "$filepath"
+    ((COUNT_SKIP++))
+    continue
+  fi
+
+  doc_type="$(detect_doc_type "$filepath")"
   ref="[[${filename%.md}]]"
-  echo ""
 
-  info "→ 1/7 Бизнес-контекст..."
-  update_knowledge_file "business-context.md" "Бизнес-контекст" \
-    "$(call_ollama "Документ: $ref
+  info "  → 1 запрос (тип: $doc_type, размер: $(echo "$content" | wc -c | tr -d ' ') символов)..."
 
-$content
+  response="$(call_ollama_single "$content" "$ref" "$doc_type")"
 
----
-Извлеки бизнес-контекст: Problem Statement, бизнес-цели, границы scope, архитектурные принципы.
-Формат: ## BC-XXX [название]
-- **Problem Statement**: ...
-- **Бизнес-цели**: ...
-- **Границы**: in scope — ...; out of scope — ...
-- **Источник**: $ref
-- **Теги**: #business-context
-Если нет — ответь точно: НЕТ ДАННЫХ")"
-
-  info "→ 2/7 Требования (FR/NFR/Security)..."
-  update_knowledge_file "requirements.md" "Требования" \
-    "$(call_ollama "Документ: $ref
-
-$content
-
----
-Извлеки требования: функциональные (BR), NFR, требования безопасности, ограничения, assumptions.
-Формат: ## BR-XXX [название]
-- **Тип**: Functional|NFR|Security|Constraint|Assumption
-- **Описание**: ...
-- **Приоритет**: Must|Should|Could
-- **Источник**: $ref
-- **Теги**: #requirement
-Если нет — ответь точно: НЕТ ДАННЫХ")"
-
-  info "→ 3/7 Архитектура (AS-IS/TO-BE/интеграции)..."
-  update_knowledge_file "architecture.md" "Архитектура решения" \
-    "$(call_ollama "Документ: $ref
-
-$content
-
----
-Извлеки архитектурные элементы: AS-IS, TO-BE, интеграционные точки, interfaces inventory, end-to-end сценарии.
-Формат: ## ARCH-XXX [название]
-- **Тип**: AS-IS|TO-BE|Integration|Scenario
-- **Описание**: ...
-- **Системы**: ...
-- **Протокол**: REST|SOAP|gRPC|MQ|...
-- **Источник**: $ref
-- **Теги**: #architecture
-Если нет — ответь точно: НЕТ ДАННЫХ")"
-
-  info "→ 4/7 ADR..."
-  update_knowledge_file "adrs.md" "Architecture Decision Records" \
-    "$(call_ollama "Документ: $ref
-
-$content
-
----
-Извлеки архитектурные решения (ADR): явные или подразумеваемые выборы с обоснованием и отклонёнными альтернативами.
-Формат: ## ADR-XXX [название]
-- **Статус**: Proposed|Accepted|Deprecated
-- **Контекст**: ...
-- **Решение**: ...
-- **Альтернативы отклонены**: вариант — причина
-- **Последствия**: ...
-- **Источник**: $ref
-- **Теги**: #adr #decision
-Если нет — ответь точно: НЕТ ДАННЫХ")"
-
-  info "→ 5/7 Риски..."
-  update_knowledge_file "risks.md" "Риски" \
-    "$(call_ollama "Документ: $ref
-
-$content
-
----
-Извлеки риски: технические, интеграционные, безопасности, реализуемости, вендорские.
-Формат: ## R-XXX [название]
-- **Категория**: Technical|Integration|Security|Vendor|Timeline
-- **Влияние**: High|Medium|Low
-- **Вероятность**: High|Medium|Low
-- **Митигация**: ...
-- **Источник**: $ref
-- **Теги**: #risk
-Если нет — ответь точно: НЕТ ДАННЫХ")"
-
-  info "→ 6/7 Открытые вопросы..."
-  update_knowledge_file "open-questions.md" "Открытые вопросы" \
-    "$(call_ollama "Документ: $ref
-
-$content
-
----
-Извлеки открытые вопросы, gap'ы, неопределённости, blocker'ы.
-Формат: ## Q-XXX [вопрос]
-- **Контекст**: ...
-- **Влияние на**: HLD|ADR|Requirements|Architecture
-- **Владелец**: роль (не имя)
-- **Срочность**: Blocker|High|Normal
-- **Источник**: $ref
-- **Теги**: #open-question
-Если нет — ответь точно: НЕТ ДАННЫХ")"
-
-  info "→ 7/7 Стейкхолдеры..."
-  update_knowledge_file "stakeholders.md" "Стейкхолдеры" \
-    "$(call_ollama "Документ: $ref
-
-$content
-
----
-Извлеки стейкхолдеров. Только роли, без реальных имён.
-Формат: ## S-XXX [роль]
-- **Роль**: Product Owner|Architect|Stakeholder|...
-- **Проект**: $JIRA
-- **Интересы**: ...
-- **RACI**: Responsible|Accountable|Consulted|Informed
-- **Источник**: $ref
-- **Теги**: #stakeholder
-Если нет — ответь точно: НЕТ ДАННЫХ")"
-
-  if [[ "$doc_type" == "spfa" ]]; then
-    info "→ SPFA оценка вендора..."
-    update_knowledge_file "spfa-assessment.md" "SPFA Оценка вендора" \
-      "$(call_ollama "Документ: $ref
-
-$content
-
----
-Извлеки оценку вендорского продукта: кандидаты лонг/шорт-лист, точки интеграции, техническая проверка, TCO, итоговый балл.
-Формат: ## SPFA-XXX [название продукта]
-- **Статус**: Лонг-лист|Шорт-лист|Рекомендован|Отклонён
-- **Причина**: ...
-- **Ключевые находки**: ...
-- **TCO**: ...
-- **Источник**: $ref
-- **Теги**: #spfa #vendor
-Если нет — ответь точно: НЕТ ДАННЫХ")"
+  if [[ -z "$response" ]]; then
+    warn "  Таймаут или пустой ответ — пропускаю: $filename"
+    ((COUNT_ERR++))
+  else
+    json_to_files "$response"
+    ((COUNT_OK++))
   fi
 
   mark_processed "$filepath"
-  ((COUNT_OK++))
   echo ""
 
 done < <(find "$RAW_JIRA" -name "*.md" -type f -print0)
 
 echo ""
 log "=== Готово ==="
-echo -e "  ${GREEN}✓ Обработано:${NC} $COUNT_OK"
-echo -e "  ${YELLOW}⊘ Пропущено:${NC}  $COUNT_SKIP"
+echo -e "  ${GREEN}✓ Обработано:${NC}  $COUNT_OK"
+echo -e "  ${YELLOW}⊘ Пропущено:${NC}   $COUNT_SKIP"
+echo -e "  ${RED}✗ Таймауты:${NC}    $COUNT_ERR"
 echo ""
 log "База знаний: $KNOWLEDGE_JIRA"
-echo ""
-log "Созданные файлы:"
 ls "$KNOWLEDGE_JIRA/" 2>/dev/null | while read f; do echo "  - $f"; done

@@ -188,6 +188,48 @@ while IFS= read -r -d '' filepath; do
       fi
       ;;
 
+    html|htm)
+      log "HTML → md: $filename"
+      if pandoc "$filepath" -f html -t markdown --wrap=none -o "$out_path" 2>/dev/null; then
+        add_frontmatter "$out_path" "$filepath" "html"
+        ((COUNT_OK++))
+      else
+        warn "Пропускаю HTML (pandoc не смог): $filename"
+        ((COUNT_SKIP++))
+      fi
+      ;;
+
+    yaml|yml)
+      log "YAML → md: $filename"
+      { echo '```yaml'; cat "$filepath"; echo '```'; } > "$out_path"
+      add_frontmatter "$out_path" "$filepath" "yaml"
+      ((COUNT_OK++))
+      ;;
+
+    puml|plantuml)
+      log "PUML → md: $filename"
+      { echo '```plantuml'; cat "$filepath"; echo '```'; } > "$out_path"
+      add_frontmatter "$out_path" "$filepath" "diagram"
+      ((COUNT_OK++))
+      ;;
+
+    sql)
+      log "SQL → md: $filename"
+      { echo '```sql'; cat "$filepath"; echo '```'; } > "$out_path"
+      add_frontmatter "$out_path" "$filepath" "sql"
+      ((COUNT_OK++))
+      ;;
+
+    7z|zip|rar|tar|gz)
+      warn "Пропускаю архив: $filename"
+      ((COUNT_SKIP++))
+      ;;
+
+    iml|xml|json)
+      warn "Пропускаю служебный файл: $filename"
+      ((COUNT_SKIP++))
+      ;;
+
     *)
       warn "Пропускаю (неизвестный тип): $filename"
       ((COUNT_SKIP++))
