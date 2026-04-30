@@ -1,6 +1,6 @@
 # Second Brain — Personal Knowledge Pipeline
 
-**Owner**: Anton Dyrdin · Solution Architect · Beeline KZ  
+**Owner**: Solution Architect  
 **Stack**: VS Code · Ollama · Obsidian · Claude API  
 **Version**: 1.0 · April 2026
 
@@ -80,7 +80,7 @@
 Запускаешь ingest для папки проекта:
 
 ```bash
-./scripts/ingest.sh ARCH-123 '/Users/antondyrdin/Documents/Working Docs before OneDrive/ESS-IDM'
+./scripts/ingest.sh ARCH-123 '/path/to/your/project/folder'
 ```
 
 Скрипт рекурсивно обходит папку и конвертирует:
