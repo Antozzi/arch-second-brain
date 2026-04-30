@@ -2,7 +2,7 @@
 
 **Owner**: Solution Architect  
 **Stack**: VS Code · Ollama · Obsidian · Claude API  
-**Version**: 1.0 · April 2026
+**Version**: 1.1 · April 2026
 
 ---
 
@@ -41,16 +41,20 @@
 ```
 ~/projects/second-brain/
 ├── raw/
-│   ├── ARCH-123/        ← номер задачи из Jira
+│   ├── ARCH-123/        ← номер задачи из Jira (CR)
 │   │   └── 2026-04-30-название-документа.md
 │   └── inbox/           ← входящее без тикета
 ├── knowledge/
 │   ├── projects/
 │   │   └── ARCH-123/
-│   │       ├── stakeholders.md
-│   │       ├── risks.md
-│   │       ├── decisions.md
-│   │       └── open-questions.md
+│   │       ├── business-context.md   ← HLD §3 / AN §1-2 / SPFA Блок 1
+│   │       ├── requirements.md       ← HLD §4 (FR + NFR + Security)
+│   │       ├── architecture.md       ← HLD §5 (AS-IS / TO-BE / интеграции)
+│   │       ├── adrs.md               ← HLD §6 (Architecture Decision Records)
+│   │       ├── risks.md              ← HLD concerns / AN §3.8 / SPFA Блок 9
+│   │       ├── open-questions.md     ← HLD §7
+│   │       ├── stakeholders.md       ← HLD §3.3 / EACMF RACI
+│   │       └── spfa-assessment.md    ← только для вендорских инициатив
 │   ├── stakeholders/    ← сквозные между проектами
 │   ├── risks/
 │   ├── decisions/
@@ -59,7 +63,7 @@
 ├── scripts/
 │   ├── ingest.sh        ← конвертация документов → markdown
 │   └── process.sh       ← Ollama обработка raw/ → knowledge/
-├── CLAUDE.md            ← системный промпт для Ollama
+├── CLAUDE.md            ← системный промпт для Ollama (EACMF-aligned)
 └── README.md            ← этот файл
 ```
 
@@ -111,12 +115,16 @@ type: pdf|docx|pptx|spreadsheet|image|txt
 ./scripts/process.sh ARCH-123
 ```
 
-Ollama (Llama 3.1 8B, локально на GPU) читает каждый файл из `raw/ARCH-123/` где `processed: false` и делает 4 прохода:
+Ollama (Llama 3.1 8B, локально на GPU) читает каждый файл из `raw/ARCH-123/` где `processed: false` и делает до 8 проходов, маппируя знания на EACMF-артефакты:
 
-1. **Стейкхолдеры** → `knowledge/projects/ARCH-123/stakeholders.md`
-2. **Риски** → `knowledge/projects/ARCH-123/risks.md`
-3. **Решения** → `knowledge/projects/ARCH-123/decisions.md`
-4. **Открытые вопросы** → `knowledge/projects/ARCH-123/open-questions.md`
+1. **Бизнес-контекст** → `business-context.md` (HLD §3 / AN §1-2 / SPFA Блок 1)
+2. **Требования** → `requirements.md` (FR + NFR + Security, HLD §4)
+3. **Архитектура** → `architecture.md` (AS-IS / TO-BE / интеграции / сценарии, HLD §5)
+4. **ADR** → `adrs.md` (Architecture Decision Records, HLD §6)
+5. **Риски** → `risks.md` (HLD concerns / AN §3.8 / SPFA Блок 9)
+6. **Открытые вопросы** → `open-questions.md` (HLD §7)
+7. **Стейкхолдеры** → `stakeholders.md` (HLD §3.3 / EACMF RACI)
+8. **SPFA оценка** → `spfa-assessment.md` (только для вендорских документов, автодетект)
 
 После обработки файл помечается `processed: true` — повторно не обрабатывается.
 
@@ -131,9 +139,11 @@ open ~/projects/second-brain
 ```
 
 В Obsidian открываешь:
+- `knowledge/projects/ARCH-123/architecture.md` — AS-IS / TO-BE / интеграции
+- `knowledge/projects/ARCH-123/adrs.md` — принятые архитектурные решения
 - `knowledge/projects/ARCH-123/risks.md` — все риски по проекту
 - Graph view — видишь связи между проектами через общих стейкхолдеров и паттерны
-- Поиск по тегам: `#risk`, `#decision`, `#open-question`, `#hypothesis`
+- Поиск по тегам: `#adr`, `#risk`, `#requirement`, `#nfr`, `#open-question`, `#hypothesis`, `#spfa`
 
 Клик на `[[ссылку]]` → переход к исходному документу в `raw/`.
 
@@ -171,6 +181,23 @@ git push
 ```
 
 В `.gitignore` прописан `raw/` — сырые материалы в GitHub не попадают. В репозитории только обезличенные знания и скрипты.
+
+---
+
+## Маппинг knowledge/ на EACMF артефакты
+
+Система следует процессу EACMF. Каждый файл в `knowledge/projects/{JIRA}/` соответствует конкретному разделу архитектурного артефакта:
+
+| Файл | EACMF артефакт | Разделы |
+|---|---|---|
+| `business-context.md` | HLD / AN / SPFA | HLD §3, AN §1-2, SPFA Блок 1 |
+| `requirements.md` | HLD / AN | HLD §4 (FR + NFR + Security) |
+| `architecture.md` | HLD | HLD §5 (AS-IS / TO-BE / интеграции) |
+| `adrs.md` | HLD / ADR | HLD §6, EACMF ADR-политика |
+| `risks.md` | HLD / AN / SPFA | HLD concerns, AN §3.8, SPFA Блок 9 |
+| `open-questions.md` | HLD | HLD §7 |
+| `stakeholders.md` | HLD / EACMF | HLD §3.3, EACMF RACI |
+| `spfa-assessment.md` | SPFA | Все блоки SPFA (вендорские инициативы) |
 
 ---
 
