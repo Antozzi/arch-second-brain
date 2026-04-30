@@ -174,7 +174,21 @@ const server = createServer(async (req, res) => {
       const { jira, question } = await getBody(req);
       if (!jira || !question) return json(res, { error: 'jira и question обязательны' }, 400);
       const context = getKnowledgeContext(jira);
-      const prompt = `Ты архитектурный ассистент Solution Architect. Используй только информацию из базы знаний проекта ${jira}.\n\nБаза знаний:\n${context.slice(0, 12000)}\n\nВопрос: ${question}\n\nОтвечай по-русски, конкретно, ссылайся на источники (filename) из базы знаний.`;
+      const prompt = `Ты архитектурный ассистент Solution Architect в телеком IT-компании.
+Используй ТОЛЬКО информацию из базы знаний проекта ${jira}.
+
+ПРАВИЛА ОТВЕТА:
+- Отвечай по-русски, структурированно
+- Используй заголовки если ответ длинный
+- Ссылайся на источники: [[filename]]
+- Если информации нет в базе — прямо скажи об этом
+- Не придумывай факты которых нет в документах
+- Отвечай полностью, не обрезай ответ
+
+База знаний проекта ${jira}:
+${context.slice(0, 14000)}
+
+Вопрос: ${question}`;
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
       const payload = JSON.stringify({ model: 'llama3.1:8b', prompt, stream: false, options: { temperature: 0.1, num_ctx: 8192 } });
       const child = exec(`curl -s -m 120 -X POST http://localhost:11434/api/generate -H 'Content-Type: application/json' -d '${payload.replace(/'/g, "'\\''")}'`);
@@ -334,7 +348,7 @@ const server = createServer(async (req, res) => {
 
       const payload = JSON.stringify({
         model: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6',
-        max_tokens: max_tokens || 2000,
+        max_tokens: max_tokens || 4000,
         system: system || 'Ты Solution Architect. Отвечай по-русски.',
         messages: [{ role: 'user', content: userPrompt }]
       });
