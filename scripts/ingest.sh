@@ -153,8 +153,25 @@ while IFS= read -r -d '' filepath; do
       if pandoc "$filepath" -t markdown --wrap=none -o "$out_path" 2>/dev/null; then
         add_frontmatter "$out_path" "$filepath" "docx"
         COUNT_OK=$((COUNT_OK+1))
+      elif command -v soffice &>/dev/null; then
+        log "pandoc не смог → LibreOffice: $filename"
+        tmp_dir="$(mktemp -d)"
+        if soffice --headless --convert-to docx "$filepath" --outdir "$tmp_dir" 2>/dev/null; then
+          converted="$(find "$tmp_dir" -name "*.docx" | head -1)"
+          if [[ -n "$converted" ]] && pandoc "$converted" -t markdown --wrap=none -o "$out_path" 2>/dev/null; then
+            add_frontmatter "$out_path" "$filepath" "docx"
+            COUNT_OK=$((COUNT_OK+1))
+          else
+            err "LibreOffice конвертировал но pandoc не смог: $filename"
+            COUNT_ERR=$((COUNT_ERR+1))
+          fi
+        else
+          err "LibreOffice не смог: $filename"
+          COUNT_ERR=$((COUNT_ERR+1))
+        fi
+        rm -rf "$tmp_dir"
       else
-        err "Ошибка конвертации: $filename"
+        err "Ошибка конвертации (установи LibreOffice для .doc): $filename"
         COUNT_ERR=$((COUNT_ERR+1))
       fi
       ;;
