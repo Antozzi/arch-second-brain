@@ -489,7 +489,10 @@
     <!-- CHAT VIEW -->
     <div id="view-chat" style="display:none">
       <div class="card">
-        <div class="card-title">◎ Вопрос к базе знаний</div>
+        <div class="card-title" style="justify-content:space-between">
+          <span>◎ Вопрос к базе знаний</span>
+          <span style="font-size:10px;color:var(--text3);font-weight:400" id="active-model-badge">llama3.1:8b</span>
+        </div>
         <div class="field">
           <label>Проект</label>
           <select id="chat-jira">
@@ -571,6 +574,17 @@
     <div id="view-settings" style="display:none">
       <div class="card">
         <div class="card-title">⚙ API ключи</div>
+
+        <div class="field">
+          <label>Ollama модель (локальная)</label>
+          <div style="display:flex;gap:8px">
+            <select id="ollama-model" style="flex:1">
+              <option value="llama3.1:8b">llama3.1:8b (текущая)</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="refreshOllamaModels()" title="Обновить список">↺</button>
+          </div>
+          <div id="ollama-model-info" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
+        </div>
 
         <div class="field">
           <label>Claude модель</label>
@@ -1118,6 +1132,34 @@ function colorize(text) { return text; }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // === SETTINGS ===
+async function refreshOllamaModels() {
+  const sel = document.getElementById('ollama-model');
+  const info = document.getElementById('ollama-model-info');
+  if (!sel) return;
+  if (info) info.textContent = 'загрузка...';
+  const r = await fetch(API + '/ollama-models').catch(() => null);
+  if (!r) { if (info) info.textContent = 'Ollama недоступна'; return; }
+  const models = await r.json().catch(() => []);
+  const current = sel.value;
+  sel.innerHTML = '';
+  if (!models.length) {
+    sel.innerHTML = '<option value="llama3.1:8b">llama3.1:8b</option>';
+    if (info) info.textContent = 'модели не найдены';
+    return;
+  }
+  models.forEach(function(m) {
+    var opt = document.createElement('option');
+    opt.value = m.name;
+    opt.textContent = m.name + (m.size ? ' · ' + m.size : '');
+    sel.appendChild(opt);
+  });
+  if (current) sel.value = current;
+  if (info) info.textContent = models.length + ' моделей установлено';
+  // Обновляем отображение в О системе
+  var disp = document.getElementById('current-ollama-display');
+  if (disp) disp.textContent = sel.value;
+}
+
 async function loadSettings() {
   const r = await fetch(API + '/settings').catch(() => null);
   if (!r) return;
@@ -1131,7 +1173,22 @@ async function loadSettings() {
     el.style.color = 'var(--amber)';
     el.textContent = '⚠ Ключ не настроен — Claude API недоступен';
   }
-  // Устанавливаем текущую модель
+  // Устанавливаем текущую Ollama модель
+  if (data.ollamaModel) {
+    const osel = document.getElementById('ollama-model');
+    if (osel) {
+      var found = false;
+      for (var i = 0; i < osel.options.length; i++) {
+        if (osel.options[i].value === data.ollamaModel) { osel.selectedIndex = i; found = true; break; }
+      }
+      if (!found) {
+        var opt = document.createElement('option');
+        opt.value = data.ollamaModel; opt.textContent = data.ollamaModel;
+        osel.appendChild(opt); osel.value = data.ollamaModel;
+      }
+    }
+  }
+  // Устанавливаем текущую Claude модель
   if (data.claudeModel) {
     const sel = document.getElementById('claude-model');
     if (sel) {
@@ -1154,8 +1211,10 @@ async function saveSettings() {
   const modelSelect = document.getElementById('claude-model');
   const modelCustom = document.getElementById('model-custom');
   const model = modelSelect.value === 'custom' ? modelCustom.value.trim() : modelSelect.value;
+  const ollamaModel = document.getElementById('ollama-model').value;
   const body = { ANTHROPIC_API_KEY: key };
   if (model) body.CLAUDE_MODEL = model;
+  if (ollamaModel) body.OLLAMA_MODEL = ollamaModel;
   const r = await fetch(API + '/settings', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -1201,6 +1260,7 @@ async function testClaude() {
 
 init();
 loadSettings();
+refreshOllamaModels();
 </script>
 </body>
 </html>

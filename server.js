@@ -150,7 +150,7 @@ const server = createServer(async (req, res) => {
       const { jira } = await getBody(req);
       if (!jira) return json(res, { error: 'jira обязателен' }, 400);
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
-      const child = exec(`bash "${join(__dirname, 'scripts', 'process.sh')}" "${jira}"`);
+      const child = exec(`OLLAMA_MODEL="${ENV.OLLAMA_MODEL || 'llama3.1:8b'}" bash "${join(__dirname, 'scripts', 'process.sh')}" "${jira}"`);
       child.stdout.on('data', d => res.write(d));
       child.stderr.on('data', d => res.write(d));
       child.on('close', code => res.end(`\n[exit ${code}]`));
@@ -315,12 +315,29 @@ ${context.slice(0, 14000)}
       return json(res, { ok: true, deleted });
     }
 
+    // GET /api/ollama-models
+    if (req.method === 'GET' && url.pathname === '/api/ollama-models') {
+      const child = exec('ollama list');
+      let out = '';
+      child.stdout.on('data', d => out += d);
+      child.on('close', () => {
+        const lines = out.split('\n').filter(l => l.trim() && !l.startsWith('NAME'));
+        const models = lines.map(l => {
+          const parts = l.trim().split(/\s+/);
+          return { name: parts[0], size: parts[2] + ' ' + parts[3] };
+        }).filter(m => m.name);
+        return json(res, models);
+      });
+      return;
+    }
+
     // GET /api/settings
     if (req.method === 'GET' && url.pathname === '/api/settings') {
       return json(res, {
         hasAnthropicKey: !!(ENV.ANTHROPIC_API_KEY),
         keyPreview: ENV.ANTHROPIC_API_KEY ? '...'+ENV.ANTHROPIC_API_KEY.slice(-6) : null,
-        claudeModel: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6'
+        claudeModel: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6',
+        ollamaModel: ENV.OLLAMA_MODEL || 'llama3.1:8b'
       });
     }
 

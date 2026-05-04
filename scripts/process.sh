@@ -12,10 +12,10 @@ BRAIN_DIR="$(dirname "$SCRIPT_DIR")"
 RAW_DIR="$BRAIN_DIR/raw"
 KNOWLEDGE_DIR="$BRAIN_DIR/knowledge"
 CLAUDE_MD="$BRAIN_DIR/CLAUDE.md"
-MODEL="llama3.1:8b"
+MODEL="${OLLAMA_MODEL:-llama3.1:8b}"
 OLLAMA_URL="http://localhost:11434/api/generate"
-MAX_CHARS=10000    # лимит контента на файл
-TIMEOUT=120        # секунд на один запрос
+MAX_CHARS=4000    # лимит контента на файл
+TIMEOUT=90        # секунд на один запрос
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[process]${NC} $*"; }
