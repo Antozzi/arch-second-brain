@@ -1173,6 +1173,10 @@ async function loadSettings() {
     el.style.color = 'var(--amber)';
     el.textContent = '⚠ Ключ не настроен — Claude API недоступен';
   }
+  // Обновляем бейдж активной модели в чате
+  var badge = document.getElementById('active-model-badge');
+  if (badge && data.ollamaModel) badge.textContent = data.ollamaModel.toUpperCase();
+
   // Устанавливаем текущую Ollama модель
   if (data.ollamaModel) {
     const osel = document.getElementById('ollama-model');
