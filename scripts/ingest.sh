@@ -139,12 +139,26 @@ while IFS= read -r -d '' filepath; do
           add_frontmatter "$out_path" "$filepath" "pdf"
           COUNT_OK=$((COUNT_OK+1))
         else
-          warn "pandoc извлёк пустой текст из: $filename — пробую OCR..."
-          pdf_ocr "$filepath" "$out_path" "$filename"
+          warn "pandoc извлёк пустой текст из: $filename — пробую pdftotext..."
+          if command -v pdftotext &>/dev/null && pdftotext "$filepath" - 2>/dev/null | grep -q "[a-zA-Zа-яА-Я]"; then
+            pdftotext "$filepath" - 2>/dev/null > "$out_path"
+            add_frontmatter "$out_path" "$filepath" "pdf"
+            COUNT_OK=$((COUNT_OK+1))
+          else
+            warn "pdftotext не смог — пробую OCR: $filename"
+            pdf_ocr "$filepath" "$out_path" "$filename"
+          fi
         fi
       else
-        warn "pandoc не смог обработать: $filename — пробую OCR..."
-        pdf_ocr "$filepath" "$out_path" "$filename"
+        warn "pandoc не смог обработать: $filename — пробую pdftotext..."
+        if command -v pdftotext &>/dev/null && pdftotext "$filepath" - 2>/dev/null | grep -q "[a-zA-Zа-яА-Я]"; then
+          pdftotext "$filepath" - 2>/dev/null > "$out_path"
+          add_frontmatter "$out_path" "$filepath" "pdf"
+          COUNT_OK=$((COUNT_OK+1))
+        else
+          warn "pdftotext не смог — пробую OCR: $filename"
+          pdf_ocr "$filepath" "$out_path" "$filename"
+        fi
       fi
       ;;
 
