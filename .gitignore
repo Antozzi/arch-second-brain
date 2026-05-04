@@ -4,3 +4,4 @@ raw/
 .env
 .env
 knowledge/
+.DS_Store
