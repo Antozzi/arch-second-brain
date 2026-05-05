@@ -405,6 +405,13 @@
 
   .empty { color: var(--text3); font-size: 12px; padding: 20px 0; text-align: center; }
 
+  /* Progress bar */
+  .progress-block { margin-top: 12px; display: none; }
+  .progress-bar-wrap { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; height: 6px; overflow: hidden; margin-bottom: 6px; }
+  .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 6px; transition: width 0.5s ease; width: 0%; }
+  .progress-label { font-size: 11px; color: var(--text3); display: flex; justify-content: space-between; }
+  .progress-label .eta { color: var(--text2); }
+
   /* Scrollbar */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -476,6 +483,13 @@
           </button>
         </div>
         <div class="terminal" id="terminal-ingest"></div>
+        <div class="progress-block" id="progress-block">
+          <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-fill"></div></div>
+          <div class="progress-label">
+            <span id="progress-text">Обработка...</span>
+            <span class="eta" id="progress-eta"></span>
+          </div>
+        </div>
       </div>
 
       <div id="projects-overview"></div>
@@ -839,13 +853,50 @@ async function runProcess() {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Обрабатываю...';
   term.className = 'terminal visible';
 
+  const progressBlock = document.getElementById('progress-block');
+  const progressFill = document.getElementById('progress-fill');
+  const progressText = document.getElementById('progress-text');
+  const progressEta = document.getElementById('progress-eta');
+  if (progressBlock) progressBlock.style.display = 'block';
+
+  var startTime = Date.now();
+  var current = 0; var total = 0;
+
   const r = await fetch(`${API}/process`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira}) });
   const reader = r.body.getReader(); const decoder = new TextDecoder();
   while (true) {
     const {value, done} = await reader.read();
     if (done) break;
-    term.textContent += decoder.decode(value);
+    const chunk = decoder.decode(value);
+    term.textContent += chunk;
     term.scrollTop = term.scrollHeight;
+
+    // Парсим [X/Y] из вывода process.sh
+    var match = chunk.match(/\[(\d+)\/(\d+)\]/);
+    if (match) {
+      current = parseInt(match[1]);
+      total = parseInt(match[2]);
+      var pct = Math.round((current / total) * 100);
+      if (progressFill) progressFill.style.width = pct + '%';
+      if (progressText) progressText.textContent = 'Файл ' + current + ' из ' + total + ' (' + pct + '%)';
+
+      // ETA
+      if (current > 1) {
+        var elapsed = (Date.now() - startTime) / 1000;
+        var perFile = elapsed / current;
+        var remaining = Math.round(perFile * (total - current));
+        var mins = Math.floor(remaining / 60);
+        var secs = remaining % 60;
+        if (progressEta) progressEta.textContent = 'осталось ~' + (mins > 0 ? mins + 'м ' : '') + secs + 'с';
+      }
+    }
+
+    // Финал
+    if (chunk.includes('=== Готово ===')) {
+      if (progressFill) progressFill.style.width = '100%';
+      if (progressText) progressText.textContent = '✓ Обработка завершена';
+      if (progressEta) progressEta.textContent = '';
+    }
   }
   btn.disabled = false; btn.innerHTML = '<span>▶</span> Обработать через Ollama';
   await loadProjects(); renderProjectsList(); renderOverview();
