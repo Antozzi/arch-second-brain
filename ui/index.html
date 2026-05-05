@@ -331,16 +331,32 @@
     background: var(--surface2);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 16px;
+    padding: 16px 20px;
     font-size: 12px;
     line-height: 1.8;
     color: var(--text);
-    white-space: pre-wrap;
     margin-top: 14px;
-    max-height: 500px;
+    max-height: 600px;
     overflow-y: auto;
     display: none;
   }
+  .artifact-output h1,.artifact-output h2,.artifact-output h3 { font-family: var(--display); font-weight: 500; margin: 14px 0 6px; color: var(--accent2); }
+  .artifact-output h1 { font-size: 15px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .artifact-output h2 { font-size: 13px; }
+  .artifact-output h3 { font-size: 12px; color: var(--text2); }
+  .artifact-output p { margin: 6px 0; line-height: 1.8; }
+  .artifact-output ul, .artifact-output ol { padding-left: 18px; margin: 6px 0; }
+  .artifact-output li { margin: 4px 0; line-height: 1.7; }
+  .artifact-output code { font-family: var(--mono); font-size: 11px; background: var(--surface); padding: 1px 5px; border-radius: 4px; color: var(--cyan); }
+  .artifact-output pre { background: var(--surface); border-radius: 6px; padding: 12px; overflow-x: auto; margin: 10px 0; }
+  .artifact-output pre code { background: none; padding: 0; color: var(--text); }
+  .artifact-output table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 10px 0; }
+  .artifact-output th { background: var(--surface); padding: 6px 10px; text-align: left; color: var(--accent2); font-weight: 500; border-bottom: 1px solid var(--border2); }
+  .artifact-output td { padding: 5px 10px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+  .artifact-output strong { color: var(--text); font-weight: 500; }
+  .artifact-output em { color: var(--text2); }
+  .artifact-output hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+  .artifact-output blockquote { border-left: 2px solid var(--accent); padding: 4px 12px; margin: 8px 0; color: var(--text2); font-style: italic; background: rgba(124,106,247,0.05); border-radius: 0 4px 4px 0; }
   .artifact-output.visible { display: block; }
 
   /* Stats */
@@ -1022,10 +1038,17 @@ async function generateArtifact() {
   });
   const text = await r.text();
   if (typeof marked !== 'undefined') {
+    marked.setOptions({ breaks: true, gfm: true });
     out.innerHTML = marked.parse(text);
-    out.style.whiteSpace = 'normal';
   } else {
+    out.style.whiteSpace = 'pre-wrap';
+    if (typeof marked !== 'undefined') {
+    marked.setOptions({ breaks: true, gfm: true });
+    out.innerHTML = marked.parse(text);
+  } else {
+    out.style.whiteSpace = 'pre-wrap';
     out.textContent = text;
+  }
   }
   btn.disabled = false; btn.innerHTML = '<span>◈</span> Сгенерировать';
   document.getElementById('btn-copy-artifact').style.display = 'inline-flex';
