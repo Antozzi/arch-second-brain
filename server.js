@@ -16,7 +16,7 @@ function loadEnv() {
 }
 let ENV = loadEnv();
 import { exec } from 'child_process';
-import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, rmSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, rmSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -303,6 +303,25 @@ ${context.slice(0, 14000)}
       return;
     }
 
+    // POST /api/save-to-knowledge
+    if (req.method === 'POST' && url.pathname === '/api/save-to-knowledge') {
+      const { jira, text, source } = await getBody(req);
+      if (!jira || !text) return json(res, { error: 'jira и text обязательны' }, 400);
+      const knowledgeDir = join(__dirname, 'knowledge', 'projects', jira);
+      if (!existsSync(knowledgeDir)) { mkdirSync(knowledgeDir, { recursive: true }); }
+      const filePath = join(knowledgeDir, 'claude-insights.md');
+      const date = new Date().toISOString().slice(0, 10);
+      const entry = '\n\n---\n\n## ' + date + ' [' + (source || 'claude-api') + ']\n\n' + text + '\n\n#claude-generated #hypothesis';
+      const header = '# Claude Insights — ' + jira + '\n';
+      if (!existsSync(filePath)) {
+        writeFileSync(filePath, header + entry);
+      } else {
+        const existing = readFileSync(filePath, 'utf8');
+        writeFileSync(filePath, existing + entry);
+      }
+      return json(res, { ok: true, file: 'claude-insights.md' });
+    }
+
     // DELETE /api/project/:jira
     if (req.method === 'DELETE' && url.pathname.startsWith('/api/project/')) {
       const jira = url.pathname.split('/').pop();
@@ -365,7 +384,7 @@ ${context.slice(0, 14000)}
 
       const payload = JSON.stringify({
         model: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6',
-        max_tokens: max_tokens || 4000,
+        max_tokens: max_tokens || 8000,
         system: system || 'Ты Solution Architect. Отвечай по-русски.',
         messages: [{ role: 'user', content: userPrompt }]
       });

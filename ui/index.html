@@ -995,10 +995,16 @@ async function sendChat() {
   document.getElementById('msg-pending').id = '';
   var lastMsg = document.querySelector('.msg-ai:last-child');
   if (lastMsg && typeof marked !== 'undefined') {
-    var rendered = marked.parse(text);
-    lastMsg.innerHTML = rendered.replace(/\[\[([^\]]+)\]\]/g, '<code style="color:var(--cyan)">[[' + '$1' + ']]</code>');
+    lastMsg.innerHTML = renderMarkdown(text);
   } else if (lastMsg) {
     lastMsg.textContent = text;
+  }
+  if (lastMsg) {
+    lastMsg.innerHTML += '<div class="msg-actions">' +
+      '<button class="msg-action-btn" onclick="quoteMessage(this)">&#x2398; Процитировать</button>' +
+      '<button class="msg-action-btn" onclick="copyMessage(this)">&#x2295; Копировать</button>' +
+      '<button class="msg-action-btn" onclick="clearHistory()">&#x21BA; Новый диалог</button>' +
+      '</div>';
   }
   btn.disabled = false; btn.innerHTML = '<span>↑</span> Спросить';
   msgs.scrollTop = msgs.scrollHeight;
@@ -1041,14 +1047,15 @@ async function sendChatClaude() {
       el.id = msgId2;
       state.chatHistory.push({ role: 'assistant', content: text });
       if (typeof marked !== 'undefined') {
-        el.innerHTML = marked.parse(text).replace(/\[\[([^\]]+)\]\]/g, '<code style="color:var(--cyan)">[[' + '$1' + ']]</code>');
+        el.innerHTML = renderMarkdown(text);
       } else {
         el.textContent = text;
       }
-      el.innerHTML += '<div class="msg-actions">' +
-        '<button class="msg-action-btn" onclick="quoteMessage('' + msgId2 + '')">⎘ Процитировать</button>' +
-        '<button class="msg-action-btn" onclick="copyMessage('' + msgId2 + '')">⊕ Копировать</button>' +
-        '<button class="msg-action-btn" onclick="clearHistory()">↺ Новый диалог</button>' +
+      el.innerHTML += '<div class="msg-actions" data-id="' + msgId2 + '">' +
+        '<button class="msg-action-btn" onclick="quoteMessage(this)">&#x2398; Процитировать</button>' +
+        '<button class="msg-action-btn" onclick="copyMessage(this)">&#x2295; Копировать</button>' +
+        '<button class="msg-action-btn" onclick="copyMessage(this)">&#x2295; Копировать</button>' +
+        '<button class="msg-action-btn" style="color:var(--green)" onclick="saveToKnowledge(this)">&#x2193; Сохранить</button>' +
         '</div>';
     }
   } catch(e) {
@@ -1216,16 +1223,23 @@ async function generateArtifactClaude() {
   btn.innerHTML = '<span>✦</span> Claude API';
 }
 
+// === UTILS HELPERS ===
+function renderMarkdown(text) {
+  if (typeof marked === 'undefined') return '<pre>' + escHtml(text) + '</pre>';
+  var html = marked.parse(text);
+  // Заменяем [[wikilinks]] на styled code
+  html = html.split('[[').join('<code style="color:var(--cyan)">[[').split(']]').join(']]</code>');
+  return html;
+}
+
 // === CHAT HISTORY & QUOTE ===
-function quoteMessage(msgId) {
-  var el = document.getElementById(msgId);
+function quoteMessage(btn) {
+  var el = btn.closest('.msg-ai');
   if (!el) return;
-  // Берём текстовый контент без кнопок
   var clone = el.cloneNode(true);
   var actions = clone.querySelector('.msg-actions');
   if (actions) actions.remove();
   var text = clone.innerText || clone.textContent;
-  // Форматируем как цитату
   var quoted = text.trim().split('\n').map(function(l) { return '> ' + l; }).join('\n');
   var input = document.getElementById('chat-input');
   input.value = quoted + '\n\n';
@@ -1233,16 +1247,46 @@ function quoteMessage(msgId) {
   input.setSelectionRange(input.value.length, input.value.length);
 }
 
-function copyMessage(msgId) {
-  var el = document.getElementById(msgId);
+function copyMessage(btn) {
+  var el = btn.closest('.msg-ai');
   if (!el) return;
   var clone = el.cloneNode(true);
   var actions = clone.querySelector('.msg-actions');
   if (actions) actions.remove();
   navigator.clipboard.writeText(clone.innerText || clone.textContent);
-  // Визуальный фидбек
-  var btn = el.querySelector('.msg-action-btn');
-  if (btn) { var orig = btn.textContent; btn.textContent = '✓ Скопировано'; setTimeout(function() { btn.textContent = orig; }, 1500); }
+  var orig = btn.textContent;
+  btn.textContent = '✓';
+  setTimeout(function() { btn.textContent = orig; }, 1500);
+}
+
+async function saveToKnowledge(btn) {
+  var el = btn.closest('.msg-ai');
+  if (!el) return;
+  var clone = el.cloneNode(true);
+  var actions = clone.querySelector('.msg-actions');
+  if (actions) actions.remove();
+  var text = (clone.innerText || clone.textContent).trim();
+  var jira = document.getElementById('chat-jira').value || state.project;
+  if (!jira) { alert('Выбери проект'); return; }
+
+  var orig = btn.textContent;
+  btn.textContent = '...';
+  btn.disabled = true;
+
+  const r = await fetch(API + '/save-to-knowledge', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ jira, text, source: 'claude-api' })
+  });
+  const data = await r.json();
+  if (data.ok) {
+    btn.textContent = '✓';
+    btn.style.color = 'var(--green)';
+  } else {
+    btn.textContent = '✗';
+    btn.style.color = 'var(--red)';
+  }
+  setTimeout(function() { btn.textContent = orig; btn.disabled = false; }, 2000);
 }
 
 function clearHistory() {
