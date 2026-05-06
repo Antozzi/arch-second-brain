@@ -171,7 +171,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/api/chat') {
-      const { jira, question } = await getBody(req);
+      const { jira, question, history } = await getBody(req);
       if (!jira || !question) return json(res, { error: 'jira и question обязательны' }, 400);
       const context = getKnowledgeContext(jira);
       const prompt = `Ты архитектурный ассистент Solution Architect в телеком IT-компании.
