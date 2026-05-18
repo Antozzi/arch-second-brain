@@ -16,7 +16,7 @@
 
 ```bash
 # Все CLI инструменты одной командой
-brew install node pandoc tesseract imagemagick ollama jq gh
+brew install node pandoc tesseract imagemagick ollama jq gh poppler
 
 # Claude Code CLI
 npm install -g @anthropic-ai/claude-code
@@ -190,13 +190,19 @@ source ~/.zshrc
 │       ├── open-questions.md
 │       └── stakeholders.md
 ├── templates/             ← шаблоны артефактов
+├── skills/                ← доменные скиллы (в git)
+│   ├── README.md
+│   └── my-skill/
+│       └── SKILL.md
 ├── scripts/
-│   ├── ingest.sh          ← конвертация документов
-│   └── process.sh         ← обработка через Ollama
+│   ├── ingest.sh                        ← конвертация документов
+│   ├── process.sh                       ← обработка через Ollama
+│   ├── process_book.sh                  ← создание скилла из PDF книги
+│   └── create_skill_from_knowledge.sh   ← создание скилла из базы знаний
 ├── ui/
 │   └── index.html         ← веб-интерфейс
 ├── server.js              ← Node.js сервер
-├── CLAUDE.md              ← системный промпт для Ollama
+├── CLAUDE.md              ← системный промпт (встроенный скилл)
 ├── .env                   ← API ключи (не в git)
 └── .gitignore
 ```
@@ -222,6 +228,34 @@ source ~/.zshrc
 | `.drawio` | как XML | компоненты и связи |
 | `.bpmn` | как XML | процессы и роли |
 | `.log`, `.out`, `.err` | копирование | логи и вывод |
+
+---
+
+## Шаг 9 — Скиллы (опционально)
+
+Скиллы — это дистиллированная экспертиза для модели. Чем их больше, тем точнее ответы по предметной области.
+
+### Создать скилл из PDF книги или документации
+
+Через UI: **◆ Скиллы** → форма **⊕ Создать скилл из PDF** → укажи путь → нажми кнопку.
+
+Или через терминал:
+```bash
+./scripts/process_book.sh ~/Downloads/clean-architecture.pdf clean-architecture
+```
+
+Требует запущенного `ollama serve` и установленного `poppler` (для `pdftotext`).
+
+### Создать доменный скилл из базы знаний проекта
+
+После обработки проекта через Ollama: **◆ Скиллы** → форма **◎ Создать из знаний проекта** → выбери проект → нажми кнопку.
+
+Или через терминал:
+```bash
+./scripts/create_skill_from_knowledge.sh ARCH-123
+```
+
+Скилл сохраняется в `skills/ARCH-123-domain/SKILL.md` и автоматически подхватывается CLAUDE.md.
 
 ---
 
