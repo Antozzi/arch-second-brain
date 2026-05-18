@@ -407,6 +407,99 @@ ${context.slice(0, 14000)}
       return;
     }
 
+    // GET /api/skills
+    if (req.method === 'GET' && url.pathname === '/api/skills') {
+      const skillsDir = join(__dirname, 'skills');
+      const skills = existsSync(skillsDir)
+        ? readdirSync(skillsDir)
+            .filter(f => statSync(join(skillsDir, f)).isDirectory())
+            .map(name => {
+              const skillFile = join(skillsDir, name, 'SKILL.md');
+              if (!existsSync(skillFile)) return null;
+              const content = readFileSync(skillFile, 'utf8');
+              const desc = content.match(/## DESCRIPTION\n([^\n]+)/)?.[1]?.trim() || '';
+              const date = content.match(/- Создан: ([^\n]+)/)?.[1]?.trim() || '';
+              const source = content.match(/- Книга: ([^\n]+)/)?.[1]?.trim() || '';
+              const lines = content.split('\n').length;
+              return { name, desc, date, source, lines };
+            })
+            .filter(Boolean)
+        : [];
+      const claudeMd = join(__dirname, 'CLAUDE.md');
+      if (existsSync(claudeMd)) {
+        const content = readFileSync(claudeMd, 'utf8');
+        skills.unshift({
+          name: 'knowledge-processor',
+          desc: content.match(/## Role\n([^\n]+)/)?.[1]?.trim() || 'Основной скилл обработки знаний',
+          source: 'CLAUDE.md',
+          date: '',
+          lines: content.split('\n').length,
+          builtin: true
+        });
+      }
+      return json(res, skills);
+    }
+
+    // GET /api/skills/:name
+    if (req.method === 'GET' && url.pathname.startsWith('/api/skills/')) {
+      const name = url.pathname.split('/').pop();
+      const filePath = name === 'knowledge-processor'
+        ? join(__dirname, 'CLAUDE.md')
+        : join(__dirname, 'skills', name, 'SKILL.md');
+      if (!existsSync(filePath)) return json(res, { error: 'not found' }, 404);
+      cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(readFileSync(filePath, 'utf8'));
+      return;
+    }
+
+    // DELETE /api/skills/:name
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/skills/')) {
+      const name = url.pathname.split('/').pop();
+      if (!name || name.length < 2) return json(res, { error: 'invalid name' }, 400);
+      const skillDir = join(__dirname, 'skills', name);
+      if (!existsSync(skillDir)) return json(res, { error: 'not found' }, 404);
+      rmSync(skillDir, { recursive: true, force: true });
+      const readme = join(__dirname, 'skills', 'README.md');
+      if (existsSync(readme)) {
+        const lines = readFileSync(readme, 'utf8').split('\n')
+          .filter(l => !l.includes(name + '/SKILL.md'));
+        writeFileSync(readme, lines.join('\n'));
+      }
+      return json(res, { ok: true });
+    }
+
+    // POST /api/skills/create-from-knowledge — доменный скилл из базы знаний проекта
+    if (req.method === 'POST' && url.pathname === '/api/skills/create-from-knowledge') {
+      const { jira, skillName } = await getBody(req);
+      if (!jira) return json(res, { error: 'jira обязателен' }, 400);
+      cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
+      const nameArg = skillName ? ` "${skillName}"` : '';
+      const child = exec(
+        `echo y | OLLAMA_MODEL="${ENV.OLLAMA_MODEL || 'llama3.1:8b'}" bash "${join(__dirname, 'scripts', 'create_skill_from_knowledge.sh')}" "${jira}"${nameArg}`,
+        { env: { ...process.env, OLLAMA_MODEL: ENV.OLLAMA_MODEL || 'llama3.1:8b' } }
+      );
+      child.stdout.on('data', d => res.write(d));
+      child.stderr.on('data', d => res.write(d));
+      child.on('close', code => res.end(`\n[exit ${code}]`));
+      return;
+    }
+
+    // POST /api/skills/create — запуск process_book.sh со стримингом
+    if (req.method === 'POST' && url.pathname === '/api/skills/create') {
+      const { pdfPath, skillName } = await getBody(req);
+      if (!pdfPath) return json(res, { error: 'pdfPath обязателен' }, 400);
+      cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
+      const nameArg = skillName ? ` "${skillName}"` : '';
+      const child = exec(
+        `echo y | OLLAMA_MODEL="${ENV.OLLAMA_MODEL || 'llama3.1:8b'}" bash "${join(__dirname, 'scripts', 'process_book.sh')}" "${pdfPath}"${nameArg}`,
+        { env: { ...process.env, OLLAMA_MODEL: ENV.OLLAMA_MODEL || 'llama3.1:8b', ANTHROPIC_API_KEY: ENV.ANTHROPIC_API_KEY || '' } }
+      );
+      child.stdout.on('data', d => res.write(d));
+      child.stderr.on('data', d => res.write(d));
+      child.on('close', code => res.end(`\n[exit ${code}]`));
+      return;
+    }
+
     return json(res, { error: 'Not found' }, 404);
   }
 

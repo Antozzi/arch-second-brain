@@ -444,6 +444,9 @@
     <button class="nav-btn" onclick="showView('artifact')" id="nav-artifact">
       <span class="icon">◈</span> Генерация артефакта
     </button>
+    <button class="nav-btn" onclick="showView('skills')" id="nav-skills">
+      <span class="icon">◆</span> Скиллы
+    </button>
     <button class="nav-btn" onclick="showView('settings')" id="nav-settings">
       <span class="icon">⚙</span> Настройки
     </button>
@@ -606,6 +609,68 @@
       </div>
     </div>
 
+    <!-- SKILLS VIEW -->
+    <div id="view-skills" style="display:none">
+      <div class="card">
+        <div class="card-title" style="justify-content:space-between">
+          <span>◆ База скиллов</span>
+          <span id="skills-count" style="font-size:10px;color:var(--text3);font-weight:400"></span>
+        </div>
+        <div id="skills-list"><div class="empty">загрузка...</div></div>
+      </div>
+
+      <div class="card" id="skill-preview-card" style="display:none">
+        <div class="card-title" style="justify-content:space-between">
+          <span id="skill-preview-title">SKILL.md</span>
+          <button class="btn btn-ghost btn-sm" onclick="closeSkillPreview()">✕ Закрыть</button>
+        </div>
+        <div class="artifact-output visible" id="skill-preview-content" style="max-height:500px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">◎ Создать доменный скилл из базы знаний</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+          Извлекает предметную экспертизу из обработанных документов проекта — термины, бизнес-правила, специфику технологий.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="field">
+            <label>Проект</label>
+            <select id="skill-from-knowledge-jira">
+              <option value="">— выберите проект —</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Имя скилла (опционально)</label>
+            <input type="text" id="skill-from-knowledge-name" placeholder="автоматически: JIRA-domain" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="createSkillFromKnowledge()" id="btn-create-skill-knowledge" style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.3);color:var(--cyan)">
+            <span>◎</span> Создать из знаний проекта
+          </button>
+        </div>
+        <div class="terminal" id="terminal-skills-knowledge"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⊕ Создать скилл из PDF книги</div>
+        <div class="field">
+          <label>Путь к PDF файлу</label>
+          <input type="text" id="skill-pdf-path" placeholder="/path/to/book.pdf" />
+        </div>
+        <div class="field">
+          <label>Имя скилла (опционально — автоматически из имени файла)</label>
+          <input type="text" id="skill-name-input" placeholder="clean-architecture" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="createSkill()" id="btn-create-skill">
+            <span>▶</span> Создать скилл
+          </button>
+        </div>
+        <div class="terminal" id="terminal-skills"></div>
+      </div>
+    </div>
+
     <!-- SETTINGS VIEW -->
     <div id="view-settings" style="display:none">
       <div class="card">
@@ -642,6 +707,7 @@
             <button class="btn btn-ghost btn-sm" onclick="toggleKeyVisibility()">👁</button>
           </div>
           <div id="key-status" style="font-size:11px;margin-top:6px;color:var(--text3)">загрузка...</div>
+          <div style="margin-top:6px"><a href="https://console.anthropic.com/settings/billing" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none">↗ Бюджет и расходы в Anthropic Console</a></div>
         </div>
 
         <div class="btn-row">
@@ -713,7 +779,7 @@ function renderProjectsList() {
 
 function populateSelects() {
   const opts = state.projects.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
-  ['skipped-jira','chat-jira','artifact-jira'].forEach(id => {
+  ['skipped-jira','chat-jira','artifact-jira','skill-from-knowledge-jira'].forEach(id => {
     const el = document.getElementById(id);
     const prev = el.value;
     el.innerHTML = '<option value="">— выберите проект —</option>' + opts;
@@ -722,7 +788,7 @@ function populateSelects() {
   const tmplOpts = state.templates.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
   document.getElementById('artifact-type').innerHTML = '<option value="">— шаблон —</option>' + tmplOpts;
   if (state.project) {
-    ['skipped-jira','chat-jira','artifact-jira'].forEach(id => {
+    ['skipped-jira','chat-jira','artifact-jira','skill-from-knowledge-jira'].forEach(id => {
       document.getElementById(id).value = state.project;
     });
   }
@@ -815,13 +881,14 @@ async function deleteProject(name) {
 // === VIEWS ===
 function showView(view) {
   state.view = view;
-  ['ingest','skipped','chat','artifact','settings'].forEach(v => {
+  ['ingest','skipped','chat','artifact','skills','settings'].forEach(v => {
     document.getElementById(`view-${v}`).style.display = v === view ? 'block' : 'none';
     document.getElementById(`nav-${v}`).classList.toggle('active', v === view);
   });
-  const titles = { ingest:'Загрузить проект', skipped:'Пропущенные файлы', chat:'Спросить модель', artifact:'Генерация артефакта', settings:'Настройки' };
+  const titles = { ingest:'Загрузить проект', skipped:'Пропущенные файлы', chat:'Спросить модель', artifact:'Генерация артефакта', skills:'Скиллы', settings:'Настройки' };
   document.getElementById('view-title').textContent = titles[view];
   if (view === 'skipped' && state.project) loadSkipped();
+  if (view === 'skills') loadSkillsList();
 }
 
 // === INGEST ===
@@ -1428,6 +1495,121 @@ async function testClaude() {
     res.textContent = '✓ Ответ получен: ' + text.slice(0, 50);
   }
   btn.disabled = false; btn.innerHTML = '<span>✦</span> Проверить соединение';
+}
+
+// === SKILLS ===
+async function loadSkillsList() {
+  const el = document.getElementById('skills-list');
+  const countEl = document.getElementById('skills-count');
+  el.innerHTML = '<div class="empty">загрузка...</div>';
+  const r = await fetch(API + '/skills').catch(() => null);
+  const skills = r ? await r.json().catch(() => []) : [];
+  if (!skills.length) { el.innerHTML = '<div class="empty">Нет скиллов — создай первый из PDF книги ниже</div>'; countEl.textContent = '0 скиллов'; return; }
+  countEl.textContent = skills.length + ' ' + (skills.length === 1 ? 'скилл' : skills.length < 5 ? 'скилла' : 'скиллов');
+  el.innerHTML = '<div class="file-list">' + skills.map(s => `
+    <div class="file-item" style="flex-wrap:wrap;gap:8px">
+      <span class="file-name" style="font-weight:500">${escHtml(s.name)}</span>
+      ${s.builtin ? '<span class="tag green">built-in</span>' : ''}
+      ${s.source ? '<span class="file-type">' + escHtml(s.source) + '</span>' : ''}
+      ${s.date ? '<span style="font-size:10px;color:var(--text3)">' + escHtml(s.date) + '</span>' : ''}
+      <span style="font-size:10px;color:var(--text3)">${s.lines} строк</span>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="viewSkill('${escHtml(s.name)}')">👁 Просмотр</button>
+        ${!s.builtin ? '<button class="btn btn-danger btn-sm" onclick="deleteSkill(\'' + escHtml(s.name) + '\')">✕</button>' : ''}
+      </div>
+      ${s.desc ? '<div style="width:100%;font-size:11px;color:var(--text2);padding-top:2px">' + escHtml(s.desc) + '</div>' : ''}
+    </div>`).join('') + '</div>';
+}
+
+async function viewSkill(name) {
+  const card = document.getElementById('skill-preview-card');
+  const content = document.getElementById('skill-preview-content');
+  const title = document.getElementById('skill-preview-title');
+  card.style.display = 'block';
+  content.innerHTML = '<span style="color:var(--text3)">загрузка...</span>';
+  title.textContent = name + ' / SKILL.md';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const r = await fetch(API + '/skills/' + encodeURIComponent(name));
+  const text = await r.text();
+  if (typeof marked !== 'undefined') {
+    content.innerHTML = marked.parse(text);
+  } else {
+    content.style.whiteSpace = 'pre-wrap';
+    content.textContent = text;
+  }
+}
+
+function closeSkillPreview() {
+  document.getElementById('skill-preview-card').style.display = 'none';
+}
+
+async function deleteSkill(name) {
+  if (!confirm('Удалить скилл "' + name + '"?\n\nБудет удалена папка skills/' + name + '/')) return;
+  const r = await fetch(API + '/skills/' + encodeURIComponent(name), { method: 'DELETE' });
+  const data = await r.json();
+  if (data.ok) {
+    closeSkillPreview();
+    loadSkillsList();
+  } else {
+    alert('Ошибка: ' + (data.error || 'неизвестная'));
+  }
+}
+
+async function createSkill() {
+  const pdfPath = document.getElementById('skill-pdf-path').value.trim();
+  const skillName = document.getElementById('skill-name-input').value.trim();
+  if (!pdfPath) return alert('Укажи путь к PDF файлу');
+  const btn = document.getElementById('btn-create-skill');
+  const term = document.getElementById('terminal-skills');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Создаю скилл...';
+  term.className = 'terminal visible'; term.textContent = '';
+
+  const r = await fetch(API + '/skills/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pdfPath, skillName: skillName || undefined })
+  });
+  const reader = r.body.getReader(); const decoder = new TextDecoder();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    term.textContent += decoder.decode(value);
+    term.scrollTop = term.scrollHeight;
+  }
+  btn.disabled = false; btn.innerHTML = '<span>▶</span> Создать скилл';
+  if (term.textContent.includes('[exit 0]')) {
+    document.getElementById('skill-pdf-path').value = '';
+    document.getElementById('skill-name-input').value = '';
+    loadSkillsList();
+  }
+}
+
+async function createSkillFromKnowledge() {
+  const jira = document.getElementById('skill-from-knowledge-jira').value;
+  const skillName = document.getElementById('skill-from-knowledge-name').value.trim();
+  if (!jira) return alert('Выбери проект');
+  const btn = document.getElementById('btn-create-skill-knowledge');
+  const term = document.getElementById('terminal-skills-knowledge');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Генерирую...';
+  term.className = 'terminal visible'; term.textContent = '';
+
+  const r = await fetch(API + '/skills/create-from-knowledge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jira, skillName: skillName || undefined })
+  });
+  const reader = r.body.getReader(); const decoder = new TextDecoder();
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    term.textContent += decoder.decode(value);
+    term.scrollTop = term.scrollHeight;
+  }
+  btn.disabled = false; btn.innerHTML = '<span>◎</span> Создать из знаний проекта';
+  if (term.textContent.includes('[exit 0]')) {
+    document.getElementById('skill-from-knowledge-name').value = '';
+    loadSkillsList();
+  }
 }
 
 init();
