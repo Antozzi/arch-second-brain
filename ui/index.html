@@ -703,7 +703,7 @@
         <div class="field">
           <label>Anthropic API Key</label>
           <div style="display:flex;gap:8px">
-            <input type="password" id="anthropic-key" placeholder="sk-ant-..." style="flex:1;font-family:var(--mono)" />
+            <input type="password" id="anthropic-key" placeholder="Оставь пустым чтобы не менять" style="flex:1;font-family:var(--mono)" />
             <button class="btn btn-ghost btn-sm" onclick="toggleKeyVisibility()">👁</button>
           </div>
           <div id="key-status" style="font-size:11px;margin-top:6px;color:var(--text3)">загрузка...</div>
@@ -1406,7 +1406,7 @@ async function loadSettings() {
     el.textContent = '✓ Ключ сохранён ' + (data.keyPreview || '');
   } else {
     el.style.color = 'var(--amber)';
-    el.textContent = '⚠ Ключ не настроен — Claude API недоступен';
+    el.textContent = 'Ключ не задан — функции Claude недоступны (опционально)';
   }
   // Обновляем бейдж активной модели в чате
   var badge = document.getElementById('active-model-badge');
@@ -1446,12 +1446,12 @@ async function loadSettings() {
 
 async function saveSettings() {
   const key = document.getElementById('anthropic-key').value.trim();
-  if (!key) return alert('Введи API ключ');
   const modelSelect = document.getElementById('claude-model');
   const modelCustom = document.getElementById('model-custom');
   const model = modelSelect.value === 'custom' ? modelCustom.value.trim() : modelSelect.value;
   const ollamaModel = document.getElementById('ollama-model').value;
-  const body = { ANTHROPIC_API_KEY: key };
+  const body = {};
+  if (key) body.ANTHROPIC_API_KEY = key;
   if (model) body.CLAUDE_MODEL = model;
   if (ollamaModel) body.OLLAMA_MODEL = ollamaModel;
   const r = await fetch(API + '/settings', {
@@ -1463,7 +1463,7 @@ async function saveSettings() {
   if (data.ok) {
     document.getElementById('anthropic-key').value = '';
     document.getElementById('settings-result').style.display = 'block';
-    document.getElementById('settings-result').textContent = '✓ Ключ сохранён. Перезапусти сервер чтобы изменения вступили в силу.';
+    document.getElementById('settings-result').textContent = '✓ Настройки сохранены.';
     loadSettings();
   }
 }

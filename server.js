@@ -366,6 +366,7 @@ ${context.slice(0, 14000)}
       const envPath = join(__dirname, '.env');
       let lines = existsSync(envPath) ? readFileSync(envPath, 'utf8').split('\n').filter(Boolean) : [];
       Object.entries(body).forEach(([k, v]) => {
+        if (!v) return;
         const idx = lines.findIndex(l => l.startsWith(k + '='));
         if (idx >= 0) lines[idx] = k + '=' + v;
         else lines.push(k + '=' + v);
@@ -378,7 +379,7 @@ ${context.slice(0, 14000)}
     // POST /api/claude  { system, userPrompt, max_tokens }
     if (req.method === 'POST' && url.pathname === '/api/claude') {
       const { system, userPrompt, max_tokens } = await getBody(req);
-      if (!ENV.ANTHROPIC_API_KEY) return json(res, { error: 'API ключ не настроен. Зайди в Настройки.' }, 400);
+      if (!ENV.ANTHROPIC_API_KEY) return json(res, { error: 'Anthropic API ключ не задан. Добавь его в Настройках.' }, 400);
 
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
 
