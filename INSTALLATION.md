@@ -259,6 +259,86 @@ source ~/.zshrc
 
 ---
 
+## Диагностика по логам
+
+Система пишет логи в папку `logs/` для каждого запуска. При успешном прогоне лог удаляется автоматически — файл остаётся только если были ошибки или таймауты.
+
+### Ingest (конвертация документов)
+
+```
+logs/ingest-ARCH-123-20260520_143012.log
+```
+
+Что искать:
+```
+[OK]   Конвертирован: договор.pdf → договор.md
+[WARN] tesseract не найден — OCR недоступен
+[ERR]  Папка не найдена: /path/to/docs
+[FILE-START] file=договор.pdf        ← с какого файла упало
+```
+
+Ключевые проблемы:
+- `[WARN] пропущен: ~$file.docx` — временный файл Office, это нормально
+- `[ERR] Не найден: pandoc` — нужно `brew install pandoc`
+- Файл попал в `[FILE-START]` но нет следующего → зависание на конкретном документе, используй **⇥ Пропустить файл**
+
+---
+
+### Process (обработка через Ollama)
+
+```
+logs/process-ARCH-123-20260520_144500.log
+```
+
+Что искать:
+```
+[INFO] Используется скилл проекта: ARCH-123-SKILL.md
+[START-MODEL] file=spec.md doc_type=hld chars=7420 model=gemma3:12b num_ctx=12800
+[END-MODEL]   file=spec.md elapsed=45s response_len=2341
+[OK]   Создан: architecture.md
+[OK]   Обновлён: requirements.md
+[WARN] Гарблед контент (18% читаемых символов) — пропускаю: scan.md
+[TIMEOUT] file=big-doc.md elapsed=180s
+[DONE] ok=5 skip=2 err=1
+```
+
+Как читать:
+| Строка | Значение |
+|--------|----------|
+| `chars=7420` | размер контента передан в модель |
+| `num_ctx=12800` | размер контекстного окна Ollama |
+| `elapsed=45s` | время ответа модели на этот файл |
+| `response_len=2341` | модель вернула ответ, JSON парсится |
+| `Гарблед контент (18%)` | PDF с битой кодировкой, файл пропущен корректно |
+| `[TIMEOUT]` | модель не ответила за 180с — увеличь таймаут или уменьши MAX_CHARS |
+
+---
+
+### Проверка шагов вручную
+
+**Шаг 1 — Ingest работает?**
+```bash
+bash scripts/ingest.sh TEST-001 /path/to/one/file/folder
+ls raw/TEST-001/
+```
+
+**Шаг 2 — Process работает?**
+```bash
+OLLAMA_MODEL=gemma3:12b bash scripts/process.sh TEST-001
+cat knowledge/projects/TEST-001/requirements.md 2>/dev/null || echo "пусто"
+```
+
+**Шаг 3 — Ollama отвечает?**
+```bash
+curl -s http://localhost:11434/api/tags | python3 -c "import sys,json; d=json.load(sys.stdin); [print(m['name']) for m in d['models']]"
+```
+
+**Шаг 4 — MAX_CHARS правильный?**
+
+Открой **⚙ Настройки** — в поле MAX_CHARS будет показано авто-значение с пояснением `авто: 10000 (ОЗУ 18ГБ, gemma3:12b)`. Если обработка зависает — уменьши вручную до 5000.
+
+---
+
 ## Решение проблем
 
 **Ollama не запускается:**
@@ -275,6 +355,19 @@ lsof -i :3030   # порт занят?
 
 **PDF не читается:**
 Скопируй текст вручную → сохрани как `.md` → загрузи через **⚠ Пропущенные файлы → ⇪ Заменить**
+
+**Модель зависает на файле:**
+Нажми **⇥ Пропустить файл** в UI — файл будет помечен как обработанный, обработка продолжится со следующего.
+
+**Все ответы модели пустые или мусор:**
+```bash
+# Проверь лог — ищи response_len=0 или json-extract error
+cat logs/process-ARCH-123-*.log | grep -E "TIMEOUT|json-extract|response_len=0"
+
+# Попробуй модель с поддержкой кириллицы
+ollama pull qwen2.5:7b
+# В Настройках → Ollama модель → qwen2.5:7b
+```
 
 **Claude API ошибка:**
 Проверь баланс: https://console.anthropic.com/settings/billing
