@@ -159,6 +159,7 @@ function getKnowledgeContext(jira) {
   let ctx = '';
   for (const f of readdirSync(dir)) {
     if (!f.endsWith('.md')) continue;
+    if (f.endsWith('-SKILL.md')) continue; // скилл — инструкция, не знание
     ctx += `\n\n### ${f}\n${readFileSync(join(dir, f), 'utf8').slice(0, 3000)}`;
   }
   return ctx;
