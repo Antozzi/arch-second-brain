@@ -56,10 +56,28 @@ const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text
 
 const activeProcesses = new Map(); // key: 'ingest-JIRA' | 'process-JIRA' → child
 
+// Windows: add common tool paths to process PATH so bash scripts can find pandoc, tesseract, etc.
+if (process.platform === 'win32') {
+  const winPaths = [
+    'C:\\Program Files\\Git\\bin',
+    'C:\\Program Files\\Git\\usr\\bin',
+    'C:\\Program Files\\Git\\mingw64\\bin',
+    'C:\\Users\\' + (process.env.USERNAME || 'User') + '\\AppData\\Local\\Programs\\Ollama',
+    'C:\\Program Files\\Pandoc',
+    'C:\\Program Files\\Tesseract-OCR',
+    'C:\\Program Files\\ImageMagick-7.1.0-portable',
+  ];
+  process.env.PATH = winPaths.join(';') + ';' + (process.env.PATH || '');
+}
+
 function killChild(key) {
   const child = activeProcesses.get(key);
   if (!child) return false;
-  child.kill('SIGTERM');
+  if (process.platform === 'win32') {
+    exec(`taskkill /F /T /PID ${child.pid}`, () => {});
+  } else {
+    child.kill('SIGTERM');
+  }
   activeProcesses.delete(key);
   return true;
 }

@@ -29,6 +29,10 @@ _get_ram_gb() {
   case "$(uname -s)" in
     Linux)  ram=$(awk '/MemTotal/{printf "%d", $2/1024/1024}' /proc/meminfo 2>/dev/null) ;;
     Darwin) ram=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 8589934592) / 1073741824 )) ;;
+    MINGW*|MSYS*|CYGWIN*)
+      ram=$(powershell.exe -NoProfile -Command \
+        "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB" 2>/dev/null \
+        | tr -d '[:space:]' | cut -d'.' -f1) ;;
   esac
   echo "${ram:-8}"
 }
