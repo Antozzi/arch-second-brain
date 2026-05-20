@@ -20,6 +20,7 @@ import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, rmSync,
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { totalmem } from 'os';
+import { inflateRawSync } from 'zlib';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = 3030;
@@ -217,6 +218,184 @@ function renderPlantuml(uml) {
     child.stdin.write(uml, 'utf8');
     child.stdin.end();
   });
+}
+
+// =============================================================================
+// drawio — генерация валидного mxGraphModel XML из знаний + каталог объектов
+// =============================================================================
+
+const DRAWIO_STYLES = {
+  system:    'rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;',
+  external:  'rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;',
+  database:  'shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;boundedLbl=1;',
+  component: 'rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;',
+  actor:     'shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;',
+  process:   'rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;',
+  queue:     'shape=process;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;',
+  note:      'shape=note;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;size=14;',
+  default:   'rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;',
+};
+const DRAWIO_TYPES = Object.keys(DRAWIO_STYLES).filter(t => t !== 'default');
+
+function slugify(s) {
+  return (s || '').toString().toLowerCase()
+    .replace(/[^a-zа-яё0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'obj';
+}
+
+function escXml(s) {
+  return (s || '').toString()
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function cleanLabel(v) {
+  if (!v) return '';
+  return v.toString()
+    .replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&#10;|&#xa;/gi, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ').trim();
+}
+
+function inferType(style) {
+  const s = (style || '').toLowerCase();
+  if (s.includes('cylinder')) return 'database';
+  if (s.includes('umlactor') || s.includes('shape=actor')) return 'actor';
+  if (s.includes('rhombus')) return 'process';
+  if (s.includes('shape=note')) return 'note';
+  if (s.includes('dashed=1')) return 'external';
+  if (s.includes('shape=process')) return 'queue';
+  return 'component';
+}
+
+// graph: { nodes:[{id?,label,type}], edges:[{from,to,label?}] } → { xml, objects }
+function buildDrawioXml(graph, diagramName) {
+  const nodes = Array.isArray(graph && graph.nodes) ? graph.nodes : [];
+  const edges = Array.isArray(graph && graph.edges) ? graph.edges : [];
+  const W = 170, H = 70, GAP_X = 90, GAP_Y = 100;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(nodes.length || 1)));
+  const idMap = {}, used = new Set(), cells = [], objects = [];
+
+  nodes.forEach((n, i) => {
+    const label = (n.label || n.id || 'Объект').toString();
+    let cid = (n.id && /^node-/.test(n.id)) ? n.id : 'node-' + slugify(n.id || label);
+    let base = cid, k = 2;
+    while (used.has(cid)) cid = base + '-' + (k++);
+    used.add(cid);
+    if (n.id) idMap[n.id] = cid;
+    idMap[label] = idMap[label] || cid;
+    const type = DRAWIO_STYLES[n.type] ? n.type : 'component';
+    const style = DRAWIO_STYLES[type];
+    const x = 40 + (i % cols) * (W + GAP_X);
+    const y = 40 + Math.floor(i / cols) * (H + GAP_Y);
+    cells.push(`        <mxCell id="${escXml(cid)}" value="${escXml(label)}" style="${style}" vertex="1" parent="1"><mxGeometry x="${x}" y="${y}" width="${W}" height="${H}" as="geometry"/></mxCell>`);
+    objects.push({ id: cid, label, type, style });
+  });
+
+  edges.forEach((e, i) => {
+    const s = idMap[e.from], t = idMap[e.to];
+    if (!s || !t) return;
+    cells.push(`        <mxCell id="edge-${i + 1}" value="${escXml(e.label || '')}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;elbow=vertical;" edge="1" parent="1" source="${escXml(s)}" target="${escXml(t)}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
+  });
+
+  const name = diagramName || 'diagram';
+  const xml = `<mxfile host="second-brain" type="device">
+  <diagram name="${escXml(name)}" id="${slugify(name)}">
+    <mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+${cells.join('\n')}
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>`;
+  return { xml, objects };
+}
+
+function decompressDrawio(xml) {
+  if (!xml) return '';
+  if (xml.includes('<mxGraphModel')) return xml;
+  const m = xml.match(/<diagram[^>]*>([\s\S]*?)<\/diagram>/);
+  if (m && m[1] && !m[1].includes('<')) {
+    try {
+      const inflated = inflateRawSync(Buffer.from(m[1].trim(), 'base64')).toString('utf8');
+      return decodeURIComponent(inflated);
+    } catch { /* fall through to raw */ }
+  }
+  return xml;
+}
+
+function parseDrawioXml(xml) {
+  const model = decompressDrawio(xml);
+  const nodes = [], edges = [];
+  // labels carried on <object>/<UserObject> wrappers
+  const objLabels = {};
+  const objRe = /<(?:object|UserObject)\b([^>]*)>\s*<mxCell\b([^>]*)/g;
+  let om;
+  while ((om = objRe.exec(model))) {
+    const idM = om[1].match(/\bid="([^"]*)"/);
+    const lblM = om[1].match(/\blabel="([^"]*)"/);
+    if (idM && lblM) objLabels[idM[1]] = lblM[1];
+  }
+  const cellRe = /<mxCell\b([^>]*?)(?:\/>|>)/g;
+  let m;
+  while ((m = cellRe.exec(model))) {
+    const a = m[1];
+    const get = (name) => { const r = a.match(new RegExp('\\b' + name + '="([^"]*)"')); return r ? r[1] : null; };
+    const id = get('id'), style = get('style') || '';
+    const value = get('value') || (id && objLabels[id]) || '';
+    if (/\bvertex="1"/.test(a)) {
+      const label = cleanLabel(value);
+      if (label) nodes.push({ id, label, type: inferType(style), style });
+    } else if (/\bedge="1"/.test(a)) {
+      edges.push({ from: get('source'), to: get('target'), label: cleanLabel(value) });
+    }
+  }
+  return { nodes, edges };
+}
+
+function catalogPath(jira) {
+  return join(__dirname, 'knowledge', 'projects', jira, 'diagram-objects.json');
+}
+function readCatalog(jira) {
+  const p = catalogPath(jira);
+  if (!existsSync(p)) return [];
+  try { const c = JSON.parse(readFileSync(p, 'utf8')); return Array.isArray(c) ? c : []; }
+  catch { return []; }
+}
+function mergeCatalog(jira, newObjs) {
+  const cat = readCatalog(jira);
+  const seen = new Map(cat.map(o => [o.id, o]));
+  for (const o of (newObjs || [])) {
+    if (!o || !o.id || !o.label) continue;
+    if (!seen.has(o.id)) { const obj = { id: o.id, label: o.label, type: o.type || 'component', style: o.style || '' }; cat.push(obj); seen.set(o.id, obj); }
+    else { const ex = seen.get(o.id); if (o.style && !ex.style) ex.style = o.style; }
+  }
+  const dir = join(__dirname, 'knowledge', 'projects', jira);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(catalogPath(jira), JSON.stringify(cat, null, 2));
+  return cat;
+}
+
+function extractJson(text) {
+  if (!text) return null;
+  const t = text.replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '');
+  const start = t.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < t.length; i++) {
+    const ch = t[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) { try { return JSON.parse(t.slice(start, i + 1)); } catch { return null; } } }
+  }
+  return null;
 }
 
 const server = createServer(async (req, res) => {
@@ -463,6 +642,141 @@ ${context.slice(0, 11000)}`;
         return json(res, { error: e.message }, 500);
       }
       return;
+    }
+
+    // GET /api/drawio/catalog/:jira — каталог переиспользуемых объектов проекта
+    if (req.method === 'GET' && url.pathname.startsWith('/api/drawio/catalog/')) {
+      const jira = decodeURIComponent(url.pathname.split('/').pop());
+      return json(res, { jira, objects: readCatalog(jira) });
+    }
+
+    // POST /api/drawio — модель строит граф из знаний → валидный drawio XML
+    if (req.method === 'POST' && url.pathname === '/api/drawio') {
+      const { jira, jiras, prompt: userPrompt, engine, name } = await getBody(req);
+      const projectList = (jiras && jiras.length) ? jiras : (jira ? [jira] : []);
+      if (!projectList.length) return json(res, { error: 'jira/jiras обязательны' }, 400);
+
+      let context = '';
+      const catSeen = new Map();
+      for (const j of projectList) {
+        const c = getKnowledgeContext(j);
+        if (c) context += `\n\n=== Проект ${j} ===\n${c}`;
+        for (const o of readCatalog(j)) if (!catSeen.has(o.id)) catSeen.set(o.id, o);
+      }
+      const catalog = [...catSeen.values()];
+      const catalogNote = catalog.length
+        ? `\n\nКАТАЛОГ СУЩЕСТВУЮЩИХ ОБЪЕКТОВ ПРОЕКТА (если объект подходит — ПЕРЕИСПОЛЬЗУЙ его "id" и "label" дословно, чтобы диаграммы были согласованы):\n${catalog.map(o => `- id="${o.id}" label="${o.label}" type=${o.type}`).join('\n')}`
+        : '';
+      const task = (userPrompt && userPrompt.trim()) || 'Построй диаграмму архитектуры на основе ключевой информации из базы знаний.';
+      const sys = 'Ты Solution Architect. Ты проектируешь архитектурные диаграммы и возвращаешь их в виде строгого JSON.';
+      const userMsg = `ЗАДАЧА: ${task}
+
+Верни ТОЛЬКО JSON такого вида (без markdown-ограждений, без текста до/после):
+{
+  "name": "краткое название диаграммы",
+  "nodes": [ { "id": "уникальный-идентификатор", "label": "Название по-русски", "type": "ОДИН ИЗ: ${DRAWIO_TYPES.join(' | ')}" } ],
+  "edges": [ { "from": "id источника", "to": "id цели", "label": "подпись связи (можно пустую)" } ]
+}
+
+ПРАВИЛА:
+- "type" выбирай по смыслу: system — наша система, external — внешняя система, database — БД/хранилище, component — модуль/сервис, actor — пользователь/роль, process — процесс/шаг, queue — очередь/брокер, note — пояснение.
+- В "edges" поля "from" и "to" ДОЛЖНЫ совпадать с "id" из "nodes".
+- Используй только факты из базы знаний — не выдумывай элементы.
+- Подписи — по-русски.${catalogNote}
+
+База знаний проектов ${projectList.join(', ')}:
+${context.slice(0, 11000)}`;
+
+      try {
+        let raw = '';
+        if (engine === 'claude') {
+          if (!ENV.ANTHROPIC_API_KEY) return json(res, { error: 'Anthropic API ключ не задан. Добавь его в Настройках.' }, 400);
+          const r = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': ENV.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({ model: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6', max_tokens: 4000, system: sys, messages: [{ role: 'user', content: userMsg }] }),
+            signal: AbortSignal.timeout(120000)
+          });
+          const data = await r.json();
+          if (data.error) return json(res, { error: 'Ошибка API: ' + data.error.message }, 502);
+          raw = data.content?.[0]?.text || '';
+        } else {
+          const r = await fetch('http://localhost:11434/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: ENV.OLLAMA_MODEL || 'llama3.1:8b', prompt: sys + '\n\n' + userMsg, stream: false, format: 'json', options: { temperature: 0.1, num_ctx: 8192 } }),
+            signal: AbortSignal.timeout(120000)
+          });
+          const data = await r.json();
+          raw = data.response || '';
+        }
+        const graph = extractJson(raw);
+        if (!graph || !Array.isArray(graph.nodes) || !graph.nodes.length) {
+          return json(res, { error: 'модель не вернула корректный граф диаграммы' }, 502);
+        }
+        const { xml, objects } = buildDrawioXml(graph, name || graph.name);
+        mergeCatalog(projectList[0], objects);
+        return json(res, { xml, objects, name: graph.name || name || 'diagram' });
+      } catch (e) {
+        return json(res, { error: 'Ошибка модели: ' + e.message }, 502);
+      }
+    }
+
+    // POST /api/drawio/save — сохранить .drawio в репозиторий проекта + каталог
+    if (req.method === 'POST' && url.pathname === '/api/drawio/save') {
+      const { jira, name, xml } = await getBody(req);
+      if (!jira || !xml) return json(res, { error: 'jira и xml обязательны' }, 400);
+      const safe = slugify(name || 'diagram');
+      const dir = join(__dirname, 'knowledge', 'projects', jira, 'diagrams');
+      mkdirSync(dir, { recursive: true });
+      const file = safe + '.drawio';
+      writeFileSync(join(dir, file), xml);
+      const { nodes } = parseDrawioXml(xml);
+      const objects = nodes.map(n => ({ id: n.id || ('node-' + slugify(n.label)), label: n.label, type: n.type, style: n.style }));
+      const catalog = mergeCatalog(jira, objects);
+      return json(res, { ok: true, file: `diagrams/${file}`, catalogSize: catalog.length });
+    }
+
+    // POST /api/import-drawio — импорт .drawio: каталог + диаграмма + в пайплайн знаний
+    if (req.method === 'POST' && url.pathname === '/api/import-drawio') {
+      const contentType = req.headers['content-type'] || '';
+      if (!contentType.includes('multipart/form-data')) return json(res, { error: 'multipart required' }, 400);
+      const boundary = contentType.split('boundary=')[1];
+      if (!boundary) return json(res, { error: 'no boundary' }, 400);
+
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = Buffer.concat(chunks).toString('binary');
+
+      const jiraM = body.match(/name="jira"\r\n\r\n([^\r]+)/);
+      const jira = jiraM ? jiraM[1].trim() : null;
+      const fileRe = /name="file"; filename="([^"]+)"[\s\S]*?\r\n\r\n([\s\S]+?)(?=\r\n--)/;
+      const fileM = body.match(fileRe);
+      if (!jira || !fileM) return json(res, { error: 'jira и file обязательны' }, 400);
+
+      const origName = fileM[1];
+      const xml = Buffer.from(fileM[2], 'binary').toString('utf8');
+      if (!decompressDrawio(xml).includes('<mxGraphModel') && !decompressDrawio(xml).includes('<mxCell')) {
+        return json(res, { error: 'файл не похож на .drawio (нет mxGraphModel)' }, 400);
+      }
+
+      const { nodes, edges } = parseDrawioXml(xml);
+      const objects = nodes.map(n => ({ id: n.id || ('node-' + slugify(n.label)), label: n.label, type: n.type, style: n.style }));
+      const catalog = mergeCatalog(jira, objects);
+
+      const safe = slugify(origName.replace(/\.drawio$/i, ''));
+      const diagDir = join(__dirname, 'knowledge', 'projects', jira, 'diagrams');
+      mkdirSync(diagDir, { recursive: true });
+      writeFileSync(join(diagDir, safe + '.drawio'), xml);
+
+      // в пайплайн знаний: кладём как raw .md с frontmatter type: drawio
+      const rawDir = join(__dirname, 'raw', jira);
+      mkdirSync(rawDir, { recursive: true });
+      const today = new Date().toISOString().slice(0, 10);
+      const md = `---\nsource: "${origName}"\njira: "${jira}"\ndate: "${today}"\nprocessed: false\ntype: "drawio"\n---\n\n\`\`\`xml\n${decompressDrawio(xml)}\n\`\`\`\n`;
+      writeFileSync(join(rawDir, safe + '.md'), md);
+
+      return json(res, { ok: true, nodes: nodes.length, edges: edges.length, catalogSize: catalog.length, file: `diagrams/${safe}.drawio` });
     }
 
     // POST /api/replace-file — загрузка замены для нечитабельного файла

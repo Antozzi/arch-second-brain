@@ -662,6 +662,7 @@
       <div class="mode-toggle">
         <button class="mode-btn active" id="mode-btn-text" onclick="setArtifactMode('text')">📄 Текстовый раздел</button>
         <button class="mode-btn" id="mode-btn-diagram" onclick="setArtifactMode('diagram')">◫ PlantUML диаграмма</button>
+        <button class="mode-btn" id="mode-btn-drawio" onclick="setArtifactMode('drawio')">⬚ drawio диаграмма</button>
       </div>
 
       <div class="card" id="artifact-card-text">
@@ -761,6 +762,76 @@
             <label>Превью</label>
             <div class="dia-preview empty" id="artifact-dia-preview">диаграмма появится здесь</div>
           </div>
+        </div>
+      </div>
+
+      <div class="card" id="artifact-card-drawio" style="display:none">
+        <div class="card-title">⬚ Генерация drawio-диаграммы</div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="field">
+            <label>Проекты <span style="color:var(--text3);font-size:10px">(можно выбрать несколько)</span></label>
+            <div class="project-chips" id="artifact-drawio-projects"></div>
+          </div>
+          <div class="field">
+            <label>Каталог объектов <span style="color:var(--text3);font-size:10px">(переиспользуются в генерации)</span></label>
+            <div id="drawio-catalog-info" style="font-size:11px;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;min-height:38px">—</div>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:14px">
+          <label>Что изобразить <span style="color:var(--text3);font-size:10px">(промпт для модели)</span></label>
+          <textarea id="artifact-drawio-prompt" placeholder="Например: схема интеграций системы ESS со смежными системами и внешними сервисами" style="min-height:80px;resize:vertical"></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="generateDrawio('ollama')" id="btn-drawio-ollama">
+            <span>⬚</span> Ollama
+          </button>
+          <button class="btn btn-ghost" onclick="generateDrawio('claude')" id="btn-drawio-claude" style="background:rgba(124,106,247,0.08);border-color:rgba(124,106,247,0.3);color:var(--accent2)">
+            <span>✦</span> Claude API
+          </button>
+        </div>
+
+        <div class="field" style="margin-top:12px">
+          <label>Название диаграммы</label>
+          <input type="text" id="artifact-drawio-name" placeholder="diagram" style="padding:7px 9px;font-size:12px">
+        </div>
+
+        <div class="dia-split">
+          <div class="field" style="margin:0">
+            <label>drawio XML <span style="color:var(--text3);font-size:10px">(редактируемый)</span></label>
+            <textarea id="artifact-drawio-xml" placeholder="&lt;mxfile&gt; ... &lt;/mxfile&gt;" style="width:100%;min-height:380px;resize:vertical;font-family:var(--mono);font-size:11px;line-height:1.6"></textarea>
+            <div class="btn-row" style="margin-top:8px">
+              <button class="btn btn-primary" onclick="renderDrawio()" id="btn-drawio-render">
+                <span>↻</span> Обновить превью
+              </button>
+              <button class="btn btn-ghost" onclick="copyDrawioXml()" id="btn-drawio-copy">
+                <span>⎘</span> Копировать XML
+              </button>
+              <button class="btn btn-ghost" onclick="exportDrawio()" id="btn-drawio-export" style="display:none">
+                <span>⤓</span> Экспорт .drawio
+              </button>
+              <button class="btn btn-ghost" onclick="saveDrawioToProject()" id="btn-drawio-save" style="display:none">
+                <span>✓</span> Сохранить в проект
+              </button>
+            </div>
+          </div>
+          <div class="field" style="margin:0">
+            <label>Превью</label>
+            <div class="dia-preview empty" id="artifact-drawio-preview">диаграмма появится здесь</div>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+          <label>Импорт существующей .drawio <span style="color:var(--text3);font-size:10px">(в каталог объектов + в знания проекта)</span></label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="file" id="drawio-import-file" accept=".drawio,.xml" style="flex:1;padding:6px 8px;font-size:11px">
+            <button class="btn btn-ghost" onclick="importDrawio()" id="btn-drawio-import">
+              <span>⊕</span> Импортировать
+            </button>
+          </div>
+          <div id="drawio-import-status" style="font-size:10px;color:var(--text3);margin-top:6px"></div>
         </div>
       </div>
     </div>
@@ -954,6 +1025,7 @@ function populateSelects() {
   renderProjectChips('chat-projects', state.projects);
   renderProjectChips('artifact-projects', state.projects);
   renderProjectChips('artifact-dia-projects', state.projects);
+  renderProjectChips('artifact-drawio-projects', state.projects);
 
   if (state.project) {
     ['skipped-jira','skill-from-knowledge-jira'].forEach(id => {
@@ -963,6 +1035,7 @@ function populateSelects() {
     autoSelectChip('chat-projects', state.project);
     autoSelectChip('artifact-projects', state.project);
     autoSelectChip('artifact-dia-projects', state.project);
+    autoSelectChip('artifact-drawio-projects', state.project);
   }
 }
 
@@ -975,7 +1048,10 @@ function renderProjectChips(containerId, projects) {
   ).join('') || '<span style="font-size:11px;color:var(--text3)">нет проектов</span>';
 }
 
-function toggleChip(el) { el.classList.toggle('selected'); }
+function toggleChip(el) {
+  el.classList.toggle('selected');
+  if (el.parentElement && el.parentElement.id === 'artifact-drawio-projects') refreshDrawioCatalog();
+}
 
 function getSelectedChips(containerId) {
   const el = document.getElementById(containerId);
@@ -1425,11 +1501,12 @@ function copyArtifact() {
 // === ARTIFACT: PLANTUML DIAGRAM ===
 function setArtifactMode(mode) {
   state.artifactMode = mode;
-  document.getElementById('mode-btn-text').classList.toggle('active', mode === 'text');
-  document.getElementById('mode-btn-diagram').classList.toggle('active', mode === 'diagram');
-  document.getElementById('artifact-card-text').style.display = mode === 'text' ? '' : 'none';
-  document.getElementById('artifact-card-diagram').style.display = mode === 'diagram' ? '' : 'none';
+  ['text','diagram','drawio'].forEach(m => {
+    document.getElementById('mode-btn-' + m).classList.toggle('active', m === mode);
+    document.getElementById('artifact-card-' + m).style.display = m === mode ? '' : 'none';
+  });
   if (mode === 'diagram' && !state.diaTypesLoaded) loadDiagramTypes();
+  if (mode === 'drawio' && !state.drawioInit) initDrawioMode();
 }
 
 async function loadDiagramTypes() {
@@ -1531,6 +1608,193 @@ function downloadSvg() {
   a.download = type + '-' + Date.now() + '.svg';
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// === ARTIFACT: DRAWIO DIAGRAM ===
+function loadDrawioViewer() {
+  if (window.__drawioViewerPromise) return window.__drawioViewerPromise;
+  window.__drawioViewerPromise = new Promise((resolve, reject) => {
+    if (window.GraphViewer) return resolve();
+    const s = document.createElement('script');
+    s.src = '/ui/drawio-viewer.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => { window.__drawioViewerPromise = null; reject(new Error('не удалось загрузить drawio-viewer.min.js')); };
+    document.head.appendChild(s);
+  });
+  return window.__drawioViewerPromise;
+}
+
+function initDrawioMode() {
+  state.drawioInit = true;
+  loadDrawioViewer().catch(() => {});
+  refreshDrawioCatalog();
+}
+
+async function refreshDrawioCatalog() {
+  const info = document.getElementById('drawio-catalog-info');
+  const jiras = getSelectedChips('artifact-drawio-projects');
+  if (!jiras.length) { info.textContent = 'выбери проект — покажется каталог'; return; }
+  let all = [];
+  for (const j of jiras) {
+    try {
+      const r = await fetch(`${API}/drawio/catalog/${encodeURIComponent(j)}`);
+      const d = await r.json();
+      all = all.concat(d.objects || []);
+    } catch(e) {}
+  }
+  const seen = {}; all = all.filter(o => seen[o.id] ? false : (seen[o.id] = 1));
+  if (!all.length) { info.textContent = 'каталог пуст — сгенерируй или импортируй диаграмму'; return; }
+  const names = all.slice(0, 12).map(o => o.label).join(', ');
+  info.innerHTML = '<strong>' + all.length + '</strong> объектов: ' + escHtml(names) + (all.length > 12 ? '…' : '');
+}
+
+async function generateDrawio(engine) {
+  const jiras = getSelectedChips('artifact-drawio-projects');
+  const prompt = document.getElementById('artifact-drawio-prompt').value.trim();
+  if (!jiras.length) return alert('Выбери проект');
+
+  const btn = document.getElementById(engine === 'claude' ? 'btn-drawio-claude' : 'btn-drawio-ollama');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Генерирую...';
+  const preview = document.getElementById('artifact-drawio-preview');
+  preview.className = 'dia-preview empty'; preview.textContent = 'модель строит диаграмму...';
+
+  try {
+    const r = await fetch(`${API}/drawio`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ jiras, prompt, engine })
+    });
+    const data = await r.json();
+    if (data.error) {
+      preview.className = 'dia-preview';
+      preview.innerHTML = '<div class="dia-err">' + escHtml(data.error) + '</div>';
+    } else {
+      document.getElementById('artifact-drawio-xml').value = data.xml;
+      document.getElementById('artifact-drawio-name').value = data.name || 'diagram';
+      document.getElementById('btn-drawio-export').style.display = 'inline-flex';
+      document.getElementById('btn-drawio-save').style.display = 'inline-flex';
+      await renderDrawio();
+      refreshDrawioCatalog();
+    }
+  } catch(e) {
+    preview.className = 'dia-preview';
+    preview.innerHTML = '<div class="dia-err">Ошибка: ' + escHtml(e.message) + '</div>';
+  }
+  btn.disabled = false; btn.innerHTML = orig;
+}
+
+async function renderDrawio() {
+  const xml = document.getElementById('artifact-drawio-xml').value.trim();
+  const host = document.getElementById('artifact-drawio-preview');
+  if (!xml) { host.className = 'dia-preview empty'; host.textContent = 'код пустой'; return; }
+
+  const btn = document.getElementById('btn-drawio-render');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Рендер...';
+  try {
+    await loadDrawioViewer();
+    host.className = 'dia-preview';
+    host.innerHTML = '';
+    const d = document.createElement('div');
+    d.className = 'mxgraph';
+    d.style.maxWidth = '100%';
+    d.setAttribute('data-mxgraph', JSON.stringify({
+      xml, highlight:'#7c6af7', nav:true, resize:true, toolbar:'zoom layers', center:true
+    }));
+    host.appendChild(d);
+    GraphViewer.createViewerForElement(d);
+    document.getElementById('btn-drawio-export').style.display = 'inline-flex';
+    document.getElementById('btn-drawio-save').style.display = 'inline-flex';
+  } catch(e) {
+    host.className = 'dia-preview';
+    host.innerHTML = '<div class="dia-err">Ошибка превью: ' + escHtml(e.message) + '</div>';
+  }
+  btn.disabled = false; btn.innerHTML = orig;
+}
+
+function copyDrawioXml() {
+  navigator.clipboard.writeText(document.getElementById('artifact-drawio-xml').value);
+  const btn = document.getElementById('btn-drawio-copy');
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span>✓</span> Скопировано';
+  setTimeout(() => btn.innerHTML = orig, 2000);
+}
+
+function drawioName() {
+  return (document.getElementById('artifact-drawio-name').value.trim() || 'diagram')
+    .replace(/[^a-zA-Zа-яА-Я0-9_-]+/g, '-');
+}
+
+function exportDrawio() {
+  const xml = document.getElementById('artifact-drawio-xml').value.trim();
+  if (!xml) return;
+  const blob = new Blob([xml], { type: 'application/xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = drawioName() + '.drawio';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function saveDrawioToProject() {
+  const jiras = getSelectedChips('artifact-drawio-projects');
+  const xml = document.getElementById('artifact-drawio-xml').value.trim();
+  if (!jiras.length) return alert('Выбери проект');
+  if (!xml) return alert('Нет XML для сохранения');
+
+  const btn = document.getElementById('btn-drawio-save');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Сохраняю...';
+  try {
+    const r = await fetch(`${API}/drawio/save`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ jira: jiras[0], name: drawioName(), xml })
+    });
+    const data = await r.json();
+    if (data.error) { alert('Ошибка: ' + data.error); }
+    else {
+      btn.innerHTML = '<span>✓</span> Сохранено';
+      refreshDrawioCatalog();
+      setTimeout(() => btn.innerHTML = orig, 2000);
+    }
+  } catch(e) { alert('Ошибка: ' + e.message); }
+  btn.disabled = false;
+  if (btn.innerHTML.includes('Сохраняю')) btn.innerHTML = orig;
+}
+
+async function importDrawio() {
+  const jiras = getSelectedChips('artifact-drawio-projects');
+  const file = document.getElementById('drawio-import-file').files[0];
+  const status = document.getElementById('drawio-import-status');
+  if (!jiras.length) return alert('Выбери проект для импорта');
+  if (!file) return alert('Выбери .drawio файл');
+
+  const btn = document.getElementById('btn-drawio-import');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Импорт...';
+  status.textContent = '';
+  try {
+    const fd = new FormData();
+    fd.append('jira', jiras[0]);
+    fd.append('file', file);
+    const r = await fetch(`${API}/import-drawio`, { method:'POST', body: fd });
+    const data = await r.json();
+    if (data.error) {
+      status.style.color = '#c0392b';
+      status.textContent = 'Ошибка: ' + data.error;
+    } else {
+      status.style.color = 'var(--green)';
+      status.textContent = `Импортировано в ${jiras[0]}: ${data.nodes} объектов, ${data.edges} связей. ` +
+        `Каталог: ${data.catalogSize}. Файл: ${data.file}. ` +
+        `Запусти обработку проекта, чтобы извлечь знания.`;
+      document.getElementById('drawio-import-file').value = '';
+      refreshDrawioCatalog();
+    }
+  } catch(e) {
+    status.style.color = '#c0392b';
+    status.textContent = 'Ошибка: ' + e.message;
+  }
+  btn.disabled = false; btn.innerHTML = orig;
 }
 
 // === CUSTOM TEMPLATE ===

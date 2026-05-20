@@ -228,6 +228,24 @@ A -> B: test
 @enduml' | java -jar vendor/plantuml.jar -tsvg -pipe -charset UTF-8 | head -c 60
 ```
 
+### drawio: превью пустое или не загружается
+
+Режим **⬚ drawio диаграмма** рендерит превью офлайн-вьюером в браузере.
+
+- Вьюер не загрузился → проверь, что файл на месте: `ls -lh ui/drawio-viewer.min.js` (~3.8 МБ).
+  Если файла нет — скачай заново:
+  ```bash
+  curl -sL -o ui/drawio-viewer.min.js \
+    https://github.com/jgraph/drawio/raw/v30.0.2/src/main/webapp/js/viewer-static.min.js
+  ```
+- Диаграмма сгенерировалась, но превью пустое → нажми **↻ Обновить превью**; проверь XML в левом поле.
+- Импорт `.drawio` не извлёк объекты → файл может быть в сжатом формате; система распаковывает
+  его автоматически, но если объектов `0` — открой файл в diagrams.net и пересохрани как
+  **Uncompressed**.
+
+Каталог объектов проекта: `knowledge/projects/<JIRA>/diagram-objects.json`,
+сохранённые диаграммы: `knowledge/projects/<JIRA>/diagrams/`.
+
 ### Windows: bash-скрипты не работают
 
 Убедись что Git for Windows установлен и `C:\Program Files\Git\bin` есть в PATH.

@@ -188,7 +188,9 @@ source ~/.zshrc
 │       ├── adrs.md
 │       ├── risks.md
 │       ├── open-questions.md
-│       └── stakeholders.md
+│       ├── stakeholders.md
+│       ├── diagram-objects.json   ← каталог объектов drawio
+│       └── diagrams/              ← сохранённые .drawio диаграммы
 ├── templates/             ← шаблоны артефактов
 ├── skills/                ← доменные скиллы (в git)
 │   ├── README.md
@@ -200,7 +202,9 @@ source ~/.zshrc
 │   ├── process_book.sh                  ← создание скилла из PDF книги
 │   └── create_skill_from_knowledge.sh   ← создание скилла из базы знаний
 ├── ui/
-│   └── index.html         ← веб-интерфейс
+│   ├── index.html         ← веб-интерфейс
+│   └── drawio-viewer.min.js  ← офлайн-вьюер drawio
+├── vendor/                ← plantuml.jar (не в git, авто-скачивание)
 ├── server.js              ← Node.js сервер
 ├── CLAUDE.md              ← системный промпт (встроенный скилл)
 ├── .env                   ← API ключи (не в git)
@@ -231,10 +235,13 @@ source ~/.zshrc
 
 ---
 
-## Шаг 9 — PlantUML диаграммы (опционально)
+## Шаг 9 — Диаграммы (опционально)
 
-В разделе **◈ Генерация артефакта** есть режим **◫ PlantUML диаграмма** — модель строит
-диаграммы (sequence, component, C4, deployment, activity, ER и др.) из базы знаний,
+В разделе **◈ Генерация артефакта** есть два режима генерации диаграмм из базы знаний.
+
+### ◫ PlantUML диаграмма
+
+Модель строит диаграммы (sequence, component, C4, deployment, activity, ER и др.)
 с живым превью.
 
 Рендер требует **Java** (ставится в Шаге 1 как `openjdk`). Сам PlantUML
@@ -248,6 +255,16 @@ brew install plantuml          # macOS / Linux
 ```
 
 Команда `plantuml` в PATH используется автоматически, если `vendor/plantuml.jar` отсутствует.
+
+### ⬚ drawio диаграмма
+
+Модель собирает валидный drawio XML, который можно экспортировать в `.drawio`,
+сохранить в проект и редактировать в [diagrams.net](https://www.drawio.com/).
+Существующие `.drawio` импортируются — их объекты попадают в каталог проекта
+(`knowledge/projects/<JIRA>/diagram-objects.json`) и переиспользуются в новых диаграммах.
+
+Дополнительная установка не нужна — офлайн-вьюер (`ui/drawio-viewer.min.js`)
+поставляется с репозиторием, превью рендерится в браузере без обращений к сети.
 
 ---
 
