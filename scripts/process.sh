@@ -477,17 +477,54 @@ while IFS= read -r -d '' filepath; do
 
   log "[$CURRENT/$TOTAL] Обрабатываю: $filename"
 
-  content="$(tr -d '\r' < "$filepath" | awk '/^---/{found++; if(found==2){skip=0; next}} found<2{next} {print}' | head -c $MAX_CHARS)"
+  # тело документа без frontmatter, целиком (без обрезки по MAX_CHARS)
+  body_file="$(mktemp)"
+  tr -d '\r' < "$filepath" | awk '/^---/{found++; if(found==2){skip=0; next}} found<2{next} {print}' > "$body_file"
 
-  if [[ -z "$(echo "$content" | tr -d '[:space:]')" ]]; then
+  if [[ -z "$(tr -d '[:space:]' < "$body_file")" ]]; then
     warn "Пустой контент — пропускаю"
+    rm -f "$body_file"
     mark_processed "$filepath"
     ((COUNT_SKIP++))
     continue
   fi
 
-  # Гарблед-фильтр: PDF с битой кодировкой (<25% читаемых символов)
-  readable_ratio="$(printf '%s' "$content" | "$PYTHON" -c "
+  # разбивка на чанки по MAX_CHARS символов (по границам строк, без разрыва UTF-8)
+  chunk_dir="$(mktemp -d)"
+  n_chunks="$("$PYTHON" - "$body_file" "$chunk_dir" "$MAX_CHARS" <<'PYCHUNK'
+import sys, os
+src, outdir, limit = sys.argv[1], sys.argv[2], max(int(sys.argv[3]), 500)
+text = open(src, encoding='utf-8', errors='replace').read()
+chunks, buf = [], ''
+for line in text.splitlines(keepends=True):
+    # буфер уже существенный и строка не влезает — режем по границе строки
+    if buf and len(buf) + len(line) > limit and len(buf) >= limit // 2:
+        chunks.append(buf); buf = ''
+    buf += line
+    # длинная строка или накопление превысили лимит — жёсткий разрез
+    while len(buf) > limit:
+        chunks.append(buf[:limit]); buf = buf[limit:]
+if buf.strip():
+    chunks.append(buf)
+chunks = [c for c in chunks if c.strip()]
+for i, c in enumerate(chunks):
+    open(os.path.join(outdir, 'chunk_%d' % i), 'w', encoding='utf-8').write(c)
+print(len(chunks))
+PYCHUNK
+)"
+  rm -f "$body_file"
+  n_chunks="${n_chunks:-0}"
+
+  if [[ "$n_chunks" -lt 1 ]]; then
+    warn "Пустой контент — пропускаю"
+    rm -rf "$chunk_dir"
+    mark_processed "$filepath"
+    ((COUNT_SKIP++))
+    continue
+  fi
+
+  # Гарблед-фильтр: битая кодировка определяется по первому чанку (<25% читаемых)
+  readable_ratio="$(printf '%s' "$(cat "$chunk_dir/chunk_0")" | "$PYTHON" -c "
 import sys
 text = sys.stdin.buffer.read().decode('utf-8', errors='replace')
 stripped = text.replace(' ','').replace('\n','').replace('\t','').replace('\r','')
@@ -500,6 +537,7 @@ else:
 ")"
   if [[ "${readable_ratio:-100}" -lt 25 ]]; then
     warn "  Гарблед контент (${readable_ratio}% читаемых символов) — пропускаю: $filename"
+    rm -rf "$chunk_dir"
     mark_processed "$filepath"
     ((COUNT_SKIP++))
     continue
@@ -507,38 +545,56 @@ else:
 
   doc_type="$(detect_doc_type "$filepath")"
   ref="[[${filename%.md}]]"
-  chars="$(printf '%s' "$content" | wc -c | tr -d ' ')"
 
-  info "  → 1 запрос (тип: $doc_type, размер: ${chars} символов)..."
-  tee_log "[START-MODEL] file=$filename doc_type=$doc_type chars=$chars model=$MODEL num_ctx=$NUM_CTX"
+  info "  → чанков: $n_chunks (тип: $doc_type, лимит чанка: ${MAX_CHARS} символов)"
+  tee_log "[FILE-CHUNKS] file=$filename chunks=$n_chunks doc_type=$doc_type"
 
-  t_start="$(date +%s)"
-  result_file="$(call_ollama_single "$content" "$ref" "$doc_type")"
-  t_end="$(date +%s)"
-  elapsed=$(( t_end - t_start ))
+  file_ok=0; file_err=0; file_skipped=0
+  for (( ci=0; ci<n_chunks; ci++ )); do
+    chunk_content="$(cat "$chunk_dir/chunk_$ci")"
+    chunk_chars="$(printf '%s' "$chunk_content" | wc -c | tr -d ' ')"
+    chunk_label="чанк $((ci+1))/$n_chunks"
 
-  if [[ -f "$BRAIN_DIR/logs/.skipped-$JIRA" ]]; then
-    rm -f "$BRAIN_DIR/logs/.skipped-$JIRA" "$result_file"
-    warn "  Пропущен по запросу пользователя: $filename"
-    tee_log "[SKIP-REQ] file=$filename elapsed=${elapsed}s"
+    info "  → $chunk_label (${chunk_chars} символов)..."
+    tee_log "[START-MODEL] file=$filename chunk=$((ci+1))/$n_chunks doc_type=$doc_type chars=$chunk_chars model=$MODEL num_ctx=$NUM_CTX"
+
+    t_start="$(date +%s)"
+    result_file="$(call_ollama_single "$chunk_content" "$ref" "$doc_type")"
+    t_end="$(date +%s)"
+    elapsed=$(( t_end - t_start ))
+
+    if [[ -f "$BRAIN_DIR/logs/.skipped-$JIRA" ]]; then
+      rm -f "$BRAIN_DIR/logs/.skipped-$JIRA" "$result_file"
+      warn "  Пропущен по запросу пользователя: $filename ($chunk_label)"
+      tee_log "[SKIP-REQ] file=$filename chunk=$((ci+1))/$n_chunks elapsed=${elapsed}s"
+      file_skipped=1
+      break
+    fi
+
+    if [[ -z "$result_file" ]] || [[ ! -s "$result_file" ]]; then
+      warn "  Таймаут или пустой ответ (${elapsed}с): $filename ($chunk_label)"
+      tee_log "[TIMEOUT] file=$filename chunk=$((ci+1))/$n_chunks elapsed=${elapsed}s"
+      [[ -n "$result_file" ]] && rm -f "$result_file"
+      file_err=$((file_err+1))
+    else
+      resp_len="$(wc -c < "$result_file" | tr -d ' ')"
+      info "  ✓ $chunk_label за ${elapsed}с (${resp_len} символов)"
+      tee_log "[END-MODEL] file=$filename chunk=$((ci+1))/$n_chunks elapsed=${elapsed}s response_len=${resp_len}"
+      json_to_files "$result_file"
+      rm -f "$result_file"
+      file_ok=$((file_ok+1))
+    fi
+  done
+  rm -rf "$chunk_dir"
+
+  if [[ "$file_skipped" -eq 1 ]]; then
     ((COUNT_SKIP++))
-    mark_processed "$filepath"
-    echo ""
-    continue
-  fi
-
-  if [[ -z "$result_file" ]] || [[ ! -s "$result_file" ]]; then
-    warn "  Таймаут или пустой ответ (${elapsed}с) — пропускаю: $filename"
-    tee_log "[TIMEOUT] file=$filename elapsed=${elapsed}s"
-    [[ -n "$result_file" ]] && rm -f "$result_file"
-    ((COUNT_ERR++))
-  else
-    resp_len="$(wc -c < "$result_file" | tr -d ' ')"
-    info "  ✓ Ответ получен за ${elapsed}с (${resp_len} символов)"
-    tee_log "[END-MODEL] file=$filename elapsed=${elapsed}s response_len=${resp_len}"
-    json_to_files "$result_file"
-    rm -f "$result_file"
+  elif [[ "$file_ok" -gt 0 ]]; then
+    info "  Файл готов: успешно $file_ok/$n_chunks чанков"
     ((COUNT_OK++))
+  else
+    warn "  Все чанки файла не обработались: $filename"
+    ((COUNT_ERR++))
   fi
 
   mark_processed "$filepath"

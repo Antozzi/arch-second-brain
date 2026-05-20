@@ -78,6 +78,27 @@ EOF
   mv "$tmp" "$file"
 }
 
+# --- распаковка drawio: сжатый <diagram> → плоский mxGraphModel XML ---
+drawio_to_xml() {
+  local file="$1" py
+  py="$(command -v python3 || command -v python)"
+  if [[ -z "$py" ]]; then cat "$file"; return; fi
+  "$py" - "$file" <<'PYEOF' 2>/dev/null || cat "$file"
+import sys, re, base64, zlib, urllib.parse
+data = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+def deco(m):
+    inner = m.group(2).strip()
+    if not inner or '<' in inner:
+        return m.group(0)
+    try:
+        xml = urllib.parse.unquote(zlib.decompress(base64.b64decode(inner), -15).decode('utf-8'))
+        return m.group(1) + xml + m.group(3)
+    except Exception:
+        return m.group(0)
+sys.stdout.write(re.sub(r'(<diagram[^>]*>)(.*?)(</diagram>)', deco, data, flags=re.S))
+PYEOF
+}
+
 # --- функция: безопасное имя файла ---
 safe_name() {
   local name="$1"
@@ -290,7 +311,7 @@ while IFS= read -r -d '' filepath; do
 
     drawio)
       log "DRAWIO → md: $filename"
-      { echo '```xml'; cat "$filepath"; echo '```'; } > "$out_path"
+      { echo '```xml'; drawio_to_xml "$filepath"; echo '```'; } > "$out_path"
       add_frontmatter "$out_path" "$filepath" "drawio"
       COUNT_OK=$((COUNT_OK+1))
       ;;

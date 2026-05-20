@@ -77,7 +77,10 @@ function killChild(key) {
   if (process.platform === 'win32') {
     exec(`taskkill /F /T /PID ${child.pid}`, () => {});
   } else {
-    child.kill('SIGTERM');
+    // убиваем всю группу процессов (sh -c → bash-скрипт → curl/python),
+    // а не только обёртку sh — для этого процесс запущен с detached:true
+    try { process.kill(-child.pid, 'SIGTERM'); }
+    catch { try { child.kill('SIGTERM'); } catch { /* уже мёртв */ } }
   }
   activeProcesses.delete(key);
   return true;
@@ -566,7 +569,7 @@ ${docBody.slice(0, 9000)}`;
       const { jira, path: srcPath } = await getBody(req);
       if (!jira || !srcPath) return json(res, { error: 'jira и path обязательны' }, 400);
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
-      const child = exec(`bash "${join(__dirname, 'scripts', 'ingest.sh')}" "${jira}" "${srcPath}"`);
+      const child = exec(`bash "${join(__dirname, 'scripts', 'ingest.sh')}" "${jira}" "${srcPath}"`, { detached: true });
       const ingestKey = `ingest-${jira}`;
       activeProcesses.set(ingestKey, child);
       child.stdout.on('data', d => res.write(d));
@@ -582,7 +585,7 @@ ${docBody.slice(0, 9000)}`;
       const _ollamaModel = ENV.OLLAMA_MODEL || 'llama3.1:8b';
       const _maxChars = String(ENV.MAX_CHARS || computeAutoMaxChars(_ollamaModel));
       const child = exec(`bash "${join(__dirname, 'scripts', 'process.sh')}" "${jira}"`,
-        { env: { ...process.env, OLLAMA_MODEL: _ollamaModel, MAX_CHARS: _maxChars } });
+        { detached: true, env: { ...process.env, OLLAMA_MODEL: _ollamaModel, MAX_CHARS: _maxChars } });
       const processKey = `process-${jira}`;
       activeProcesses.set(processKey, child);
       child.stdout.on('data', d => res.write(d));
@@ -909,6 +912,80 @@ ${context.slice(0, 11000)}`;
       writeFileSync(join(rawDir, safe + '.md'), md);
 
       return json(res, { ok: true, nodes: nodes.length, edges: edges.length, catalogSize: catalog.length, file: `diagrams/${safe}.drawio` });
+    }
+
+    // GET /api/cyrillic-check/:jira — доля кириллицы в raw + наличие кириллической модели
+    if (req.method === 'GET' && url.pathname.startsWith('/api/cyrillic-check/')) {
+      const jira = decodeURIComponent(url.pathname.split('/').pop());
+      const dir = join(__dirname, 'raw', jira);
+      let cyr = 0, lat = 0, files = 0;
+      if (existsSync(dir)) {
+        for (const f of readdirSync(dir).filter(f => f.endsWith('.md')).slice(0, 10)) {
+          files++;
+          const body = readFileSync(join(dir, f), 'utf8').replace(/^---\n[\s\S]*?\n---\n/, '').slice(0, 20000);
+          for (const ch of body) {
+            if (ch >= 'Ѐ' && ch <= 'ӿ') cyr++;
+            else if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) lat++;
+          }
+        }
+      }
+      const ratio = (cyr + lat) ? cyr / (cyr + lat) : 0;
+      let installed = [];
+      try {
+        const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(4000) });
+        installed = ((await r.json()).models || []).map(m => m.name);
+      } catch { /* ollama down — installed остаётся пустым */ }
+      const cyrillicModelInstalled = installed.some(n => /qwen|aya|vikhr|saiga|mistral/i.test(n));
+      const isCyrillic = ratio >= 0.3;
+      return json(res, {
+        jira, files, percent: Math.round(ratio * 100),
+        isCyrillic, cyrillicModelInstalled,
+        recommendModel: 'qwen2.5:7b',
+        recommend: isCyrillic && !cyrillicModelInstalled
+      });
+    }
+
+    // POST /api/ollama-pull — установка модели Ollama со стримингом прогресса
+    if (req.method === 'POST' && url.pathname === '/api/ollama-pull') {
+      const { model } = await getBody(req);
+      if (!model) return json(res, { error: 'model обязателен' }, 400);
+      cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
+      try {
+        const r = await fetch('http://localhost:11434/api/pull', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: model, stream: true })
+        });
+        res.write(`Загрузка ${model}...\n`);
+        let buf = '', lastStatus = '', lastPct = -1;
+        for await (const chunk of r.body) {
+          buf += chunk.toString('utf8');
+          let nl;
+          while ((nl = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!line) continue;
+            try {
+              const o = JSON.parse(line);
+              if (o.error) { res.write('[ERR] ' + o.error + '\n'); continue; }
+              if (o.total && o.completed != null) {
+                const pct = Math.round(o.completed / o.total * 100);
+                if (o.status === lastStatus && pct < lastPct + 5 && pct < 100) continue;
+                lastStatus = o.status; lastPct = pct;
+                res.write(`${o.status} ${pct}%\n`);
+              } else {
+                if (o.status === lastStatus) continue;
+                lastStatus = o.status; lastPct = -1;
+                res.write((o.status || '') + '\n');
+              }
+            } catch { /* неполная строка NDJSON */ }
+          }
+        }
+        res.end('\n[exit 0]');
+      } catch (e) {
+        res.end('\n[ERR] ' + e.message);
+      }
+      return;
     }
 
     // POST /api/replace-file — загрузка замены для нечитабельного файла

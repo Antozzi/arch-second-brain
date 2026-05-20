@@ -50,6 +50,31 @@ else
   echo "  [--] Java не найдена — рендер диаграмм недоступен (см. INSTALLATION.md)"
 fi
 
+# --- кириллическая модель (для русскоязычных документов) ---
+QWEN_MARKER="logs/.no-qwen"
+mkdir -p logs
+if curl -s --max-time 3 http://localhost:11434/api/tags >/dev/null 2>&1; then
+  CYR_MODEL="$(curl -s --max-time 3 http://localhost:11434/api/tags 2>/dev/null \
+    | grep -oE '"name":"[^"]*"' | grep -iE 'qwen|aya|vikhr|saiga|mistral' | head -1)"
+  if [[ -n "$CYR_MODEL" ]]; then
+    echo "  [OK] Кириллическая модель установлена"
+  elif [[ -f "$QWEN_MARKER" ]]; then
+    echo "  [--] Кириллическая модель пропущена (выбор сохранён)"
+  else
+    echo ""
+    printf "  Будешь работать с русскоязычными документами? qwen2.5 точнее с русским [y/N]: "
+    read -r ANS
+    if [[ "$ANS" =~ ^[yYдД] ]]; then
+      echo "  [..] Устанавливаю qwen2.5:7b (~4.7 ГБ, разово)..."
+      ollama pull qwen2.5:7b && echo "  [OK] qwen2.5:7b установлена" \
+        || echo "  [WARN] не удалось установить — можно позже в UI"
+    else
+      touch "$QWEN_MARKER"
+      echo "  [--] Пропущено (больше не спрашиваю; можно поставить в потоке Ingest)"
+    fi
+  fi
+fi
+
 # --- проверка .env ---
 if [[ -f ".env" ]]; then
   echo "  [OK] .env найден (API ключи загружены)"

@@ -157,6 +157,13 @@
     padding: 20px 24px;
     margin-bottom: 16px;
   }
+  .card.collapsed { padding-bottom: 14px; opacity: 0.7; }
+  .card.collapsed > *:not(.card-title) { display: none; }
+  .card-title.collapsible { cursor: pointer; margin-bottom: 14px; }
+  .card-title.collapsible:hover { color: var(--accent2); }
+  .card-title.collapsible::before { content: '▾ '; color: var(--text3); }
+  .card.collapsed > .card-title.collapsible { margin-bottom: 0; }
+  .card.collapsed > .card-title.collapsible::before { content: '▸ '; }
   .card-title {
     font-family: var(--display);
     font-size: 11px;
@@ -517,7 +524,7 @@
     <div id="view-ingest">
 
       <!-- Step 1: Load documents -->
-      <div class="card">
+      <div class="card" id="card-load">
         <div class="card-title">① Загрузить документы</div>
         <div class="field">
           <label>Project Label</label>
@@ -536,6 +543,21 @@
           </button>
         </div>
         <div class="terminal" id="terminal-ingest"></div>
+      </div>
+
+      <!-- Cyrillic / qwen recommendation -->
+      <div class="card" id="card-cyrillic" style="display:none">
+        <div class="card-title">⚐ Язык документов проекта</div>
+        <div id="cyrillic-msg" style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:12px"></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="installQwen()" id="btn-install-qwen">
+            <span>⊕</span> Установить qwen2.5:7b
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="dismissCyrillic()" style="color:var(--text3)">
+            Пропустить
+          </button>
+        </div>
+        <div class="terminal" id="terminal-qwen" style="display:none"></div>
       </div>
 
       <!-- Step 2: Project skill -->
@@ -1321,6 +1343,72 @@ async function runIngest() {
   if (btnStop) btnStop.style.display = 'none';
   selectProject(jira);
   await loadProjects(); renderProjectsList(); renderOverview();
+  checkCyrillic(jira);
+}
+
+// === CYRILLIC / QWEN ===
+async function checkCyrillic(jira) {
+  const card = document.getElementById('card-cyrillic');
+  if (!card) return;
+  try {
+    const r = await fetch(`${API}/cyrillic-check/${encodeURIComponent(jira)}`);
+    const d = await r.json();
+    if (d.recommend) {
+      document.getElementById('cyrillic-msg').innerHTML =
+        `В документах проекта <strong>${d.percent}% кириллицы</strong>. Для качественного извлечения знаний на русском рекомендуется модель <strong>qwen2.5</strong> — текущая модель с русским справляется хуже. Установить? Разово, ~4.7 ГБ. После установки обработка переключится на неё автоматически.`;
+      card.style.display = 'block';
+    } else {
+      card.style.display = 'none';
+    }
+  } catch(e) { /* проверка не критична */ }
+}
+
+async function installQwen() {
+  const btn = document.getElementById('btn-install-qwen');
+  const term = document.getElementById('terminal-qwen');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Устанавливаю...';
+  term.style.display = 'block'; term.className = 'terminal visible'; term.textContent = '';
+  try {
+    const r = await fetch(`${API}/ollama-pull`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model: 'qwen2.5:7b' })
+    });
+    const reader = r.body.getReader(); const dec = new TextDecoder();
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      term.textContent += dec.decode(value);
+      term.scrollTop = term.scrollHeight;
+    }
+    if (term.textContent.includes('[exit 0]')) {
+      btn.innerHTML = '<span>✓</span> qwen2.5 установлена';
+      if (typeof refreshOllamaModels === 'function') refreshOllamaModels();
+    } else {
+      btn.disabled = false; btn.innerHTML = '<span>⊕</span> Повторить установку';
+    }
+  } catch(e) {
+    term.textContent += '\nОшибка: ' + e.message;
+    btn.disabled = false; btn.innerHTML = '<span>⊕</span> Повторить установку';
+  }
+}
+
+function dismissCyrillic() {
+  document.getElementById('card-cyrillic').style.display = 'none';
+}
+
+function collapseCard(id) {
+  const card = document.getElementById(id);
+  if (!card) return;
+  const title = card.querySelector('.card-title');
+  if (title && !title.classList.contains('collapsible')) {
+    title.classList.add('collapsible');
+    title.addEventListener('click', () => card.classList.toggle('collapsed'));
+  }
+  card.classList.add('collapsed');
+}
+function expandCard(id) {
+  const card = document.getElementById(id);
+  if (card) card.classList.remove('collapsed');
 }
 
 async function runProcess() {
@@ -1330,6 +1418,10 @@ async function runProcess() {
   const btnStop = document.getElementById('btn-stop-process');
   const btnSkip = document.getElementById('btn-skip-process');
   const term = document.getElementById('terminal-process');
+  // схлопываем шаги ① и ② , раскрываем ③
+  collapseCard('card-load');
+  collapseCard('card-skill');
+  document.getElementById('card-process').scrollIntoView({ behavior: 'smooth', block: 'start' });
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Обрабатываю...';
   if (btnStop) btnStop.style.display = 'inline-flex';
   if (btnSkip) btnSkip.style.display = 'inline-flex';

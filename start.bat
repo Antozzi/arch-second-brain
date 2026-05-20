@@ -60,6 +60,32 @@ if exist "vendor\plantuml.jar" (
   )
 )
 
+:: --- кириллическая модель (для русскоязычных документов) ---
+if not exist "logs" mkdir logs
+curl -s --max-time 3 http://localhost:11434/api/tags >nul 2>&1
+if errorlevel 1 goto skipcyr
+curl -s --max-time 3 http://localhost:11434/api/tags 2>nul | findstr /i "qwen aya vikhr saiga mistral" >nul 2>&1
+if not errorlevel 1 (
+  echo   [OK] Кириллическая модель установлена
+  goto skipcyr
+)
+if exist "logs\.no-qwen" (
+  echo   [--] Кириллическая модель пропущена ^(выбор сохранён^)
+  goto skipcyr
+)
+echo.
+set /p ANS="  Будешь работать с русскоязычными документами? qwen2.5 точнее [y/N]: "
+if /i "%ANS%"=="y" goto pullqwen
+if /i "%ANS%"=="д" goto pullqwen
+echo done> "logs\.no-qwen"
+echo   [--] Пропущено ^(больше не спрашиваю; можно поставить в потоке Ingest^)
+goto skipcyr
+:pullqwen
+echo   [..] Устанавливаю qwen2.5:7b ^(~4.7 ГБ, разово^)...
+ollama pull qwen2.5:7b
+echo   [OK] qwen2.5:7b
+:skipcyr
+
 :: --- проверка .env ---
 if exist ".env" (
   echo   [OK] .env найден ^(API ключи загружены^)
