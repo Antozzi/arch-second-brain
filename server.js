@@ -16,14 +16,53 @@ function loadEnv() {
 }
 let ENV = loadEnv();
 import { exec } from 'child_process';
-import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, rmSync, mkdirSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, rmSync, mkdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { totalmem } from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = 3030;
 
+function computeAutoMaxChars(model) {
+  const ramGB = Math.floor(totalmem() / (1024 ** 3));
+  const m = (model || '').toLowerCase();
+  let b = 8;
+  if (/70b|72b/.test(m))      b = 70;
+  else if (/34b|30b/.test(m)) b = 34;
+  else if (/27b/.test(m))     b = 27;
+  else if (/12b|13b/.test(m)) b = 13;
+  else if (/3b|4b/.test(m))   b = 3;
+  if (b >= 70) return ramGB >= 64 ? 24000 : 16000;
+  if (b >= 27) {
+    if (ramGB >= 64) return 20000;
+    if (ramGB >= 32) return 14000;
+    if (ramGB >= 16) return 8000;
+    return 4000;
+  }
+  if (b >= 12) {
+    if (ramGB >= 32) return 14000;
+    if (ramGB >= 16) return 10000;
+    if (ramGB >= 8)  return 6000;
+    return 4000;
+  }
+  if (ramGB >= 32) return 10000;
+  if (ramGB >= 16) return 7000;
+  if (ramGB >= 8)  return 5000;
+  return 3000;
+}
+
 const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text/css', '.json':'application/json' };
+
+const activeProcesses = new Map(); // key: 'ingest-JIRA' | 'process-JIRA' → child
+
+function killChild(key) {
+  const child = activeProcesses.get(key);
+  if (!child) return false;
+  child.kill('SIGTERM');
+  activeProcesses.delete(key);
+  return true;
+}
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -140,9 +179,11 @@ const server = createServer(async (req, res) => {
       if (!jira || !srcPath) return json(res, { error: 'jira и path обязательны' }, 400);
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
       const child = exec(`bash "${join(__dirname, 'scripts', 'ingest.sh')}" "${jira}" "${srcPath}"`);
+      const ingestKey = `ingest-${jira}`;
+      activeProcesses.set(ingestKey, child);
       child.stdout.on('data', d => res.write(d));
       child.stderr.on('data', d => res.write(d));
-      child.on('close', code => res.end(`\n[exit ${code}]`));
+      child.on('close', code => { activeProcesses.delete(ingestKey); res.end(`\n[exit ${code}]`); });
       return;
     }
 
@@ -150,11 +191,35 @@ const server = createServer(async (req, res) => {
       const { jira } = await getBody(req);
       if (!jira) return json(res, { error: 'jira обязателен' }, 400);
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
-      const child = exec(`OLLAMA_MODEL="${ENV.OLLAMA_MODEL || 'llama3.1:8b'}" bash "${join(__dirname, 'scripts', 'process.sh')}" "${jira}"`);
+      const _ollamaModel = ENV.OLLAMA_MODEL || 'llama3.1:8b';
+      const _maxChars = String(ENV.MAX_CHARS || computeAutoMaxChars(_ollamaModel));
+      const child = exec(`bash "${join(__dirname, 'scripts', 'process.sh')}" "${jira}"`,
+        { env: { ...process.env, OLLAMA_MODEL: _ollamaModel, MAX_CHARS: _maxChars } });
+      const processKey = `process-${jira}`;
+      activeProcesses.set(processKey, child);
       child.stdout.on('data', d => res.write(d));
       child.stderr.on('data', d => res.write(d));
-      child.on('close', code => res.end(`\n[exit ${code}]`));
+      child.on('close', code => { activeProcesses.delete(processKey); res.end(`\n[exit ${code}]`); });
       return;
+    }
+
+    // POST /api/stop/:type/:jira
+    if (req.method === 'POST' && url.pathname.startsWith('/api/stop/')) {
+      const parts = url.pathname.split('/').filter(Boolean);
+      const type = parts[2]; const jira = parts[3];
+      if (!type || !jira) return json(res, { error: 'type и jira обязательны' }, 400);
+      const stopped = killChild(`${type}-${jira}`);
+      return json(res, { ok: stopped, message: stopped ? 'процесс остановлен' : 'нет активного процесса' });
+    }
+
+    // POST /api/skip/:jira
+    if (req.method === 'POST' && url.pathname.startsWith('/api/skip/')) {
+      const jira = url.pathname.split('/').pop();
+      if (!jira) return json(res, { error: 'jira обязателен' }, 400);
+      const logsDir = join(__dirname, 'logs');
+      mkdirSync(logsDir, { recursive: true });
+      writeFileSync(join(logsDir, `.skip-${jira}`), '');
+      return json(res, { ok: true });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/reprocess') {
@@ -171,11 +236,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/api/chat') {
-      const { jira, question, history } = await getBody(req);
-      if (!jira || !question) return json(res, { error: 'jira и question обязательны' }, 400);
-      const context = getKnowledgeContext(jira);
+      const { jira, jiras, question, history } = await getBody(req);
+      const projectList = (jiras && jiras.length) ? jiras : (jira ? [jira] : []);
+      if (!projectList.length || !question) return json(res, { error: 'jira/jiras и question обязательны' }, 400);
+      let context = '';
+      for (const j of projectList) {
+        const c = getKnowledgeContext(j);
+        if (c) context += `\n\n=== Проект ${j} ===\n${c}`;
+      }
+      const projectLabel = projectList.join(', ');
       const prompt = `Ты архитектурный ассистент Solution Architect в телеком IT-компании.
-Используй ТОЛЬКО информацию из базы знаний проекта ${jira}.
+Используй ТОЛЬКО информацию из базы знаний проектов: ${projectLabel}.
 
 ПРАВИЛА ОТВЕТА:
 - Отвечай по-русски, структурированно
@@ -185,40 +256,50 @@ const server = createServer(async (req, res) => {
 - Не придумывай факты которых нет в документах
 - Отвечай полностью, не обрезай ответ
 
-База знаний проекта ${jira}:
+База знаний:
 ${context.slice(0, 14000)}
 
 Вопрос: ${question}`;
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
-      const payload = JSON.stringify({ model: 'llama3.1:8b', prompt, stream: false, options: { temperature: 0.1, num_ctx: 8192 } });
-      const child = exec(`curl -s -m 120 -X POST http://localhost:11434/api/generate -H 'Content-Type: application/json' -d '${payload.replace(/'/g, "'\\''")}'`);
-      let out = '';
-      child.stdout.on('data', d => out += d);
-      child.on('close', () => {
-        try { res.end(JSON.parse(out).response || 'Нет ответа'); }
-        catch { res.end('Ошибка модели'); }
-      });
+      try {
+        const r = await fetch('http://localhost:11434/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: ENV.OLLAMA_MODEL || 'llama3.1:8b', prompt, stream: false, options: { temperature: 0.1, num_ctx: 8192 } }),
+          signal: AbortSignal.timeout(120000)
+        });
+        const data = await r.json();
+        res.end(data.response || 'Нет ответа');
+      } catch(e) { res.end('Ошибка модели: ' + e.message); }
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/artifact') {
       const body = await getBody(req);
-      const { jira, template, section } = body;
-      if (!jira || !template) return json(res, { error: 'jira и template обязательны' }, 400);
-      const context = getKnowledgeContext(jira);
-      const tmplPath = join(__dirname, 'templates', template + '.md');
-      const tmplContent = existsSync(tmplPath) ? readFileSync(tmplPath, 'utf8').slice(0, 3000) : '';
+      const { jira, jiras, template, section } = body;
+      const projectList = (jiras && jiras.length) ? jiras : (jira ? [jira] : []);
+      if (!projectList.length) return json(res, { error: 'jira/jiras обязательны' }, 400);
+      let context = '';
+      for (const j of projectList) {
+        const c = getKnowledgeContext(j);
+        if (c) context += `\n\n=== Проект ${j} ===\n${c}`;
+      }
+      const projectLabel = projectList.join(', ');
+      const tmplPath = template ? join(__dirname, 'templates', template + '.md') : null;
+      const tmplContent = (tmplPath && existsSync(tmplPath)) ? readFileSync(tmplPath, 'utf8').slice(0, 3000) : '';
       const sectionNote = section ? `Сфокусируйся на разделе: "${section}".` : 'Заполни все разделы шаблона.';
-      const prompt = `Ты Solution Architect. На основе базы знаний проекта ${jira} помоги заполнить архитектурный документ.\n\n${sectionNote}\n\nШаблон документа:\n${tmplContent}\n\nБаза знаний проекта:\n${context.slice(0, 10000)}\n\nСгенерируй контент для указанного раздела на основе знаний из базы. Отвечай по-русски. Если данных недостаточно — укажи что именно нужно уточнить.`;
+      const prompt = `Ты Solution Architect. На основе базы знаний проектов ${projectLabel} помоги заполнить архитектурный документ.\n\n${sectionNote}\n\nШаблон документа:\n${tmplContent}\n\nБаза знаний:\n${context.slice(0, 10000)}\n\nСгенерируй контент для указанного раздела на основе знаний из базы. Отвечай по-русски. Если данных недостаточно — укажи что именно нужно уточнить.`;
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
-      const payload = JSON.stringify({ model: 'llama3.1:8b', prompt, stream: false, options: { temperature: 0.2, num_ctx: 8192 } });
-      const child = exec(`curl -s -m 120 -X POST http://localhost:11434/api/generate -H 'Content-Type: application/json' -d '${payload.replace(/'/g, "'\\''")}'`);
-      let out = '';
-      child.stdout.on('data', d => out += d);
-      child.on('close', () => {
-        try { res.end(JSON.parse(out).response || 'Нет ответа'); }
-        catch { res.end('Ошибка модели'); }
-      });
+      try {
+        const r = await fetch('http://localhost:11434/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: ENV.OLLAMA_MODEL || 'llama3.1:8b', prompt, stream: false, options: { temperature: 0.2, num_ctx: 8192 } }),
+          signal: AbortSignal.timeout(120000)
+        });
+        const data = await r.json();
+        res.end(data.response || 'Нет ответа');
+      } catch(e) { res.end('Ошибка модели: ' + e.message); }
       return;
     }
 
@@ -336,36 +417,48 @@ ${context.slice(0, 14000)}
 
     // GET /api/ollama-models
     if (req.method === 'GET' && url.pathname === '/api/ollama-models') {
-      const child = exec('ollama list');
-      let out = '';
-      child.stdout.on('data', d => out += d);
-      child.on('close', () => {
-        const lines = out.split('\n').filter(l => l.trim() && !l.startsWith('NAME'));
-        const models = lines.map(l => {
-          const parts = l.trim().split(/\s+/);
-          return { name: parts[0], size: parts[2] + ' ' + parts[3] };
-        }).filter(m => m.name);
+      try {
+        const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(5000) });
+        const data = await r.json();
+        const models = (data.models || []).map(m => ({
+          name: m.name,
+          size: m.size ? (m.size / 1e9).toFixed(1) + ' GB' : ''
+        }));
         return json(res, models);
-      });
-      return;
+      } catch {
+        return json(res, []);
+      }
     }
 
     // GET /api/settings
     if (req.method === 'GET' && url.pathname === '/api/settings') {
+      const ollamaModel = ENV.OLLAMA_MODEL || 'llama3.1:8b';
+      const autoMaxChars = computeAutoMaxChars(ollamaModel);
+      const manualMaxChars = ENV.MAX_CHARS ? parseInt(ENV.MAX_CHARS) : null;
       return json(res, {
         hasAnthropicKey: !!(ENV.ANTHROPIC_API_KEY),
         keyPreview: ENV.ANTHROPIC_API_KEY ? '...'+ENV.ANTHROPIC_API_KEY.slice(-6) : null,
         claudeModel: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6',
-        ollamaModel: ENV.OLLAMA_MODEL || 'llama3.1:8b'
+        ollamaModel,
+        maxChars: manualMaxChars || autoMaxChars,
+        maxCharsAuto: autoMaxChars,
+        maxCharsIsManual: !!manualMaxChars,
+        ramGB: Math.floor(totalmem() / (1024 ** 3))
       });
     }
 
-    // POST /api/settings  { ANTHROPIC_API_KEY }
+    // POST /api/settings  { ANTHROPIC_API_KEY, OLLAMA_MODEL, CLAUDE_MODEL, MAX_CHARS }
     if (req.method === 'POST' && url.pathname === '/api/settings') {
       const body = await getBody(req);
       const envPath = join(__dirname, '.env');
       let lines = existsSync(envPath) ? readFileSync(envPath, 'utf8').split('\n').filter(Boolean) : [];
+      const allowed = ['ANTHROPIC_API_KEY', 'CLAUDE_MODEL', 'OLLAMA_MODEL', 'MAX_CHARS'];
       Object.entries(body).forEach(([k, v]) => {
+        if (!allowed.includes(k)) return;
+        if (k === 'MAX_CHARS' && v === '') {
+          lines = lines.filter(l => !l.startsWith('MAX_CHARS='));
+          return;
+        }
         if (!v) return;
         const idx = lines.findIndex(l => l.startsWith(k + '='));
         if (idx >= 0) lines[idx] = k + '=' + v;
@@ -390,21 +483,21 @@ ${context.slice(0, 14000)}
         messages: [{ role: 'user', content: userPrompt }]
       });
 
-      const child = exec(`curl -s -m 120 -X POST https://api.anthropic.com/v1/messages \
-        -H 'Content-Type: application/json' \
-        -H 'x-api-key: ${ENV.ANTHROPIC_API_KEY}' \
-        -H 'anthropic-version: 2023-06-01' \
-        -d '${payload.replace(/'/g, "'\\''")}'`);
-
-      let out = '';
-      child.stdout.on('data', d => out += d);
-      child.on('close', () => {
-        try {
-          const data = JSON.parse(out);
-          if (data.error) res.end('Ошибка API: ' + data.error.message);
-          else res.end(data.content?.[0]?.text || 'Нет ответа');
-        } catch { res.end('Ошибка парсинга ответа'); }
-      });
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': ENV.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01'
+          },
+          body: payload,
+          signal: AbortSignal.timeout(120000)
+        });
+        const data = await r.json();
+        if (data.error) res.end('Ошибка API: ' + data.error.message);
+        else res.end(data.content?.[0]?.text || 'Нет ответа');
+      } catch(e) { res.end('Ошибка запроса: ' + e.message); }
       return;
     }
 
@@ -499,6 +592,133 @@ ${context.slice(0, 14000)}
       child.stderr.on('data', d => res.write(d));
       child.on('close', code => res.end(`\n[exit ${code}]`));
       return;
+    }
+
+    // GET /api/skill/:jira — check if project skill exists
+    if (req.method === 'GET' && url.pathname.startsWith('/api/skill/') && !url.pathname.endsWith('/promote')) {
+      const jira = url.pathname.split('/').pop();
+      const skillPath = join(__dirname, 'knowledge', 'projects', jira, jira + '-SKILL.md');
+      if (!existsSync(skillPath)) return json(res, { exists: false });
+      return json(res, { exists: true, content: readFileSync(skillPath, 'utf8') });
+    }
+
+    // DELETE /api/skill/:jira — delete project SKILL.md
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/skill/')) {
+      const jira = url.pathname.split('/').pop();
+      const skillPath = join(__dirname, 'knowledge', 'projects', jira, jira + '-SKILL.md');
+      if (!existsSync(skillPath)) return json(res, { ok: true, deleted: false });
+      unlinkSync(skillPath);
+      return json(res, { ok: true, deleted: true });
+    }
+
+    // POST /api/analyze-for-skill — sample raw docs and suggest a skill via Ollama (streaming)
+    if (req.method === 'POST' && url.pathname === '/api/analyze-for-skill') {
+      const { jira } = await getBody(req);
+      if (!jira) return json(res, { error: 'jira обязателен' }, 400);
+      const rawDir = join(__dirname, 'raw', jira);
+      if (!existsSync(rawDir)) return json(res, { error: 'raw папка не найдена' }, 404);
+
+      const mdFiles = readdirSync(rawDir)
+        .filter(f => f.endsWith('.md'))
+        .map(f => ({ f, size: statSync(join(rawDir, f)).size }))
+        .sort((a, b) => b.size - a.size)
+        .map(x => x.f);
+      let samples = ''; let sampled = 0;
+      for (const f of mdFiles) {
+        if (sampled >= 8) break;
+        const raw = readFileSync(join(rawDir, f), 'utf8');
+        const body = raw.replace(/^---[\s\S]+?---\n?/, '').trim();
+        if (body.length < 200) continue;
+        const garbled = (body.match(/[<EFBFBD>\x00-\x08\x0E-\x1F]/g) || []).length / body.length;
+        if (garbled > 0.05) continue;
+        samples += `\n\n### ${f}\n${body.slice(0, 1500)}`;
+        sampled++;
+      }
+      if (!samples.trim()) return json(res, { error: 'нет читаемого контента в raw файлах' }, 400);
+
+      const prompt = `Ты редактор базы знаний. Проанализируй отрывки документов проекта "${jira}" и напиши SKILL.md — инструкцию для LLM по извлечению знаний.
+
+ПРАВИЛА:
+- SKILL.md — это ИНСТРУКЦИЯ, а не каталог данных и не пример извлечения
+- Верни ТОЛЬКО markdown-текст SKILL.md, без пояснений
+- Не более 35 строк
+- Ровно 3 секции: ## Домен, ## Задача модели, ## JSON-структура
+
+ФОРМАТ:
+
+## Домен
+[одно предложение: тип документов и тематика]
+
+## Задача модели
+[2-4 пункта со знаком - : что именно извлекать]
+
+## JSON-структура
+\`\`\`json
+{
+  "секция1": [{"id": "X-001", "поле": "описание поля", "source": "[[filename]]"}],
+  "секция2": [...]
+}
+\`\`\`
+Отвечай ТОЛЬКО валидным JSON без пояснений.
+
+---
+Отрывки документов проекта (для понимания домена):
+${samples.slice(0, 5000)}
+
+Напиши SKILL.md для этого проекта:`;
+
+      cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
+      try {
+        const r = await fetch('http://localhost:11434/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: ENV.OLLAMA_MODEL || 'llama3.1:8b', prompt, stream: true, options: { temperature: 0.2, num_ctx: 4096, num_predict: 900 } }),
+          signal: AbortSignal.timeout(120000)
+        });
+        const rdr = r.body.getReader(); const dec = new TextDecoder();
+        while (true) {
+          const { value, done } = await rdr.read();
+          if (done) break;
+          for (const line of dec.decode(value).split('\n').filter(Boolean)) {
+            try { const o = JSON.parse(line); if (o.response) res.write(o.response); } catch {}
+          }
+        }
+        res.end();
+      } catch(e) { res.end('\nОшибка: ' + e.message); }
+      return;
+    }
+
+    // POST /api/skill/:jira/promote — copy project SKILL.md → skills/<name>/SKILL.md
+    if (req.method === 'POST' && /^\/api\/skill\/[^/]+\/promote$/.test(url.pathname)) {
+      const jira = url.pathname.split('/')[3];
+      const { targetName } = await getBody(req);
+      const name = (targetName || jira).replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+      const srcPath = join(__dirname, 'knowledge', 'projects', jira, jira + '-SKILL.md');
+      if (!existsSync(srcPath)) return json(res, { error: 'project skill not found' }, 404);
+      const destDir = join(__dirname, 'skills', name);
+      mkdirSync(destDir, { recursive: true });
+      const content = readFileSync(srcPath, 'utf8');
+      writeFileSync(join(destDir, 'SKILL.md'), content);
+      const readme = join(__dirname, 'skills', 'README.md');
+      const entry = `- [${name}](${name}/SKILL.md)\n`;
+      if (existsSync(readme)) {
+        const existing = readFileSync(readme, 'utf8');
+        if (!existing.includes(name + '/SKILL.md')) writeFileSync(readme, existing + entry);
+      } else {
+        writeFileSync(readme, `# Skills\n\n${entry}`);
+      }
+      return json(res, { ok: true, name });
+    }
+
+    // POST /api/save-skill — save project SKILL.md
+    if (req.method === 'POST' && url.pathname === '/api/save-skill') {
+      const { jira, content } = await getBody(req);
+      if (!jira || !content) return json(res, { error: 'jira и content обязательны' }, 400);
+      const knowledgeDir = join(__dirname, 'knowledge', 'projects', jira);
+      if (!existsSync(knowledgeDir)) mkdirSync(knowledgeDir, { recursive: true });
+      const cleaned = content.replace(/^```(?:markdown)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+      writeFileSync(join(knowledgeDir, jira + '-SKILL.md'), cleaned);
+      return json(res, { ok: true });
     }
 
     return json(res, { error: 'Not found' }, 404);

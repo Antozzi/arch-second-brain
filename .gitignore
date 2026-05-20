@@ -15,3 +15,6 @@ knowledge/decisions/*
 !knowledge/decisions/.gitkeep
 knowledge/patterns/*
 !knowledge/patterns/.gitkeep
+logs/*
+!logs/.gitkeep
+.claude/

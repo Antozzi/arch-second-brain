@@ -239,6 +239,17 @@
   .terminal .err { color: var(--red); }
   .terminal .info { color: var(--cyan); }
 
+  /* Project chips (multi-select) */
+  .project-chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 28px; }
+  .proj-chip {
+    padding: 4px 12px; border-radius: 20px;
+    border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text2); cursor: pointer; font-size: 12px;
+    font-family: var(--mono); transition: all 0.15s;
+  }
+  .proj-chip:hover { border-color: var(--border2); color: var(--text); }
+  .proj-chip.selected { background: rgba(124,106,247,0.15); border-color: var(--accent); color: var(--accent2); }
+
   /* Chat */
   .chat-messages {
     min-height: 200px;
@@ -473,10 +484,12 @@
 
     <!-- INGEST VIEW -->
     <div id="view-ingest">
+
+      <!-- Step 1: Load documents -->
       <div class="card">
-        <div class="card-title">⊕ Новый проект</div>
+        <div class="card-title">① Загрузить документы</div>
         <div class="field">
-          <label>Jira тикет</label>
+          <label>Project Label</label>
           <input type="text" id="ingest-jira" placeholder="ARCH-123" />
         </div>
         <div class="field">
@@ -487,18 +500,81 @@
           <button class="btn btn-primary" onclick="runIngest()" id="btn-ingest">
             <span>⊕</span> Загрузить и конвертировать
           </button>
-          <button class="btn btn-ghost" onclick="runProcess()" id="btn-process" style="display:none">
-            <span>▶</span> Обработать через Ollama
+          <button class="btn btn-danger" onclick="stopOperation('ingest')" id="btn-stop" style="display:none">
+            <span>■</span> Стоп
           </button>
         </div>
         <div class="terminal" id="terminal-ingest"></div>
-        <div class="progress-block" id="progress-block">
+      </div>
+
+      <!-- Step 2: Project skill -->
+      <div class="card" id="card-skill" style="display:none">
+        <div class="card-title" style="justify-content:space-between">
+          <span>② Скилл проекта</span>
+          <span id="skill-status-badge" style="font-size:10px;font-weight:400;color:var(--text3)"></span>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+          Модель анализирует документы и предлагает инструкцию (<span id="skill-filename-desc">JIRA-SKILL.md</span>), управляющую извлечением знаний. Без скилла используется дефолтный SA-промпт.
+        </div>
+        <div class="btn-row" style="margin-bottom:12px">
+          <button class="btn btn-ghost" onclick="analyzeForSkill()" id="btn-analyze-skill">
+            <span>⇒</span> Проанализировать и предложить скилл
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="promoteSkill()" id="btn-promote-skill" style="color:var(--cyan);display:none">
+            <span>↑</span> Сделать глобальным
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="deleteProjectSkill()" id="btn-delete-skill" style="color:#e55;display:none">
+            <span>✕</span> Удалить скилл
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="skipSkillStep()" style="color:var(--text3)">
+            Пропустить шаг
+          </button>
+        </div>
+        <div class="field" style="margin-bottom:12px" id="apply-skill-row">
+          <label style="font-size:11px;color:var(--text2);margin-bottom:6px;display:block">Применить существующий скилл:</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="global-skill-select" style="flex:1;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-family:var(--mono);font-size:12px">
+              <option value="">— нет доступных скиллов —</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="applyGlobalSkill()" id="btn-apply-skill">
+              <span>⇩</span> Применить
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label id="skill-file-label"><span id="skill-filename-label">JIRA-SKILL.md</span> — инструкция для модели</label>
+          <textarea id="skill-textarea" placeholder="Нажми «Проанализировать» для автоматического предложения или введи инструкцию вручную..." style="min-height:260px;resize:vertical;font-size:11px;line-height:1.6"></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveProjectSkill()" id="btn-save-skill">
+            <span>✓</span> Сохранить <span id="skill-filename-btn">JIRA-SKILL.md</span>
+          </button>
+        </div>
+        <div class="terminal" id="terminal-skill" style="display:none"></div>
+      </div>
+
+      <!-- Step 3: Process via model -->
+      <div class="card" id="card-process" style="display:none">
+        <div class="card-title">③ Обработать через модель</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="runProcess()" id="btn-process">
+            <span>▶</span> Запустить обработку
+          </button>
+          <button class="btn btn-danger" onclick="stopOperation('process')" id="btn-stop-process" style="display:none">
+            <span>■</span> Стоп
+          </button>
+          <button class="btn" onclick="skipCurrentFile()" id="btn-skip-process" style="display:none;background:rgba(245,166,35,0.1);color:var(--amber);border:1px solid rgba(245,166,35,0.3)">
+            <span>⇥</span> Пропустить файл
+          </button>
+        </div>
+        <div class="progress-block" id="progress-block" style="margin-top:12px;display:none">
           <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-fill"></div></div>
           <div class="progress-label">
             <span id="progress-text">Обработка...</span>
             <span class="eta" id="progress-eta"></span>
           </div>
         </div>
+        <div class="terminal" id="terminal-process" style="display:none"></div>
       </div>
 
       <div id="projects-overview"></div>
@@ -533,10 +609,8 @@
           <span style="font-size:10px;color:var(--text3);font-weight:400" id="active-model-badge">llama3.1:8b</span>
         </div>
         <div class="field">
-          <label>Проект</label>
-          <select id="chat-jira">
-            <option value="">— выберите проект —</option>
-          </select>
+          <label>Проекты <span style="color:var(--text3);font-size:10px">(можно выбрать несколько)</span></label>
+          <div class="project-chips" id="chat-projects"></div>
         </div>
         <div class="chat-messages" id="chat-messages">
           <div class="empty">Задайте вопрос по проекту</div>
@@ -562,10 +636,8 @@
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
           <div class="field">
-            <label>Проект</label>
-            <select id="artifact-jira" onchange="updateArtifactContext()">
-              <option value="">— проект —</option>
-            </select>
+            <label>Проекты <span style="color:var(--text3);font-size:10px">(можно выбрать несколько)</span></label>
+            <div class="project-chips" id="artifact-projects"></div>
           </div>
           <div class="field">
             <label>Тип артефакта</label>
@@ -710,6 +782,12 @@
           <div style="margin-top:6px"><a href="https://console.anthropic.com/settings/billing" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none">↗ Бюджет и расходы в Anthropic Console</a></div>
         </div>
 
+        <div class="field">
+          <label>MAX_CHARS — лимит символов на документ</label>
+          <input type="number" id="max-chars" placeholder="оставь пустым для авто" step="1000" min="1000" max="100000" style="font-family:var(--mono)" />
+          <div id="max-chars-hint" style="font-size:10px;color:var(--text3);margin-top:4px">вычисляется по объёму ОЗУ и размеру модели</div>
+        </div>
+
         <div class="btn-row">
           <button class="btn btn-primary" onclick="saveSettings()">
             <span>✓</span> Сохранить
@@ -779,29 +857,56 @@ function renderProjectsList() {
 
 function populateSelects() {
   const opts = state.projects.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
-  ['skipped-jira','chat-jira','artifact-jira','skill-from-knowledge-jira'].forEach(id => {
+  ['skipped-jira','skill-from-knowledge-jira'].forEach(id => {
     const el = document.getElementById(id);
+    if (!el) return;
     const prev = el.value;
     el.innerHTML = '<option value="">— выберите проект —</option>' + opts;
     if (prev) el.value = prev;
   });
   const tmplOpts = state.templates.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
   document.getElementById('artifact-type').innerHTML = '<option value="">— шаблон —</option>' + tmplOpts;
+
+  renderProjectChips('chat-projects', state.projects);
+  renderProjectChips('artifact-projects', state.projects);
+
   if (state.project) {
-    ['skipped-jira','chat-jira','artifact-jira','skill-from-knowledge-jira'].forEach(id => {
-      document.getElementById(id).value = state.project;
+    ['skipped-jira','skill-from-knowledge-jira'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = state.project;
     });
+    autoSelectChip('chat-projects', state.project);
+    autoSelectChip('artifact-projects', state.project);
   }
+}
+
+function renderProjectChips(containerId, projects) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const prev = getSelectedChips(containerId);
+  el.innerHTML = projects.map(p =>
+    `<button class="proj-chip${prev.includes(p.name) ? ' selected' : ''}" data-jira="${p.name}" onclick="toggleChip(this)">${p.name}</button>`
+  ).join('') || '<span style="font-size:11px;color:var(--text3)">нет проектов</span>';
+}
+
+function toggleChip(el) { el.classList.toggle('selected'); }
+
+function getSelectedChips(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return [];
+  return [...el.querySelectorAll('.proj-chip.selected')].map(b => b.dataset.jira);
+}
+
+function autoSelectChip(containerId, name) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.querySelectorAll('.proj-chip').forEach(b => {
+    if (b.dataset.jira === name) b.classList.add('selected');
+  });
 }
 
 function renderOverview() {
   const el = document.getElementById('projects-overview');
-  // Показываем кнопку Обработать если есть выбранный проект
-  const procBtn = document.getElementById('btn-process');
-  if (procBtn && state.project) {
-    procBtn.style.display = 'inline-flex';
-    procBtn.setAttribute('data-jira', state.project);
-  }
   if (!state.projects.length) { el.innerHTML = ''; return; }
   el.innerHTML = `
     <div class="card">
@@ -827,6 +932,19 @@ function selectProject(name) {
   renderProjectsList();
   populateSelects();
   document.getElementById('ingest-jira').value = name;
+  // Показываем card-skill и card-process если проект выбран
+  const cardSkill = document.getElementById('card-skill');
+  const cardProcess = document.getElementById('card-process');
+  if (cardSkill && name) {
+    cardSkill.style.display = 'block';
+    updateSkillFilenames(name);
+    loadProjectSkillIfExists(name);
+    loadGlobalSkillsIntoSelect();
+  }
+  if (cardProcess && name) {
+    cardProcess.style.display = 'block';
+    document.getElementById('btn-process').setAttribute('data-jira', name);
+  }
 }
 
 // === REPLACE FILE ===
@@ -891,14 +1009,33 @@ function showView(view) {
   if (view === 'skills') loadSkillsList();
 }
 
+// === STOP / SKIP ===
+async function stopOperation(type) {
+  const jira = state.project || document.getElementById('ingest-jira').value.trim();
+  if (!jira) return;
+  await fetch(`${API}/stop/${type}/${jira}`, { method: 'POST' }).catch(() => {});
+  ['btn-stop','btn-stop-process','btn-skip-process'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
+
+async function skipCurrentFile() {
+  const jira = state.project || document.getElementById('ingest-jira').value.trim();
+  if (!jira) return;
+  await fetch(`${API}/skip/${jira}`, { method: 'POST' }).catch(() => {});
+}
+
 // === INGEST ===
 async function runIngest() {
   const jira = document.getElementById('ingest-jira').value.trim();
   const path = document.getElementById('ingest-path').value.trim();
-  if (!jira || !path) return alert('Укажи Jira тикет и путь к папке');
+  if (!jira || !path) return alert('Укажи Project Label и путь к папке');
   const btn = document.getElementById('btn-ingest');
+  const btnStop = document.getElementById('btn-stop');
   const term = document.getElementById('terminal-ingest');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Загружаю...';
+  if (btnStop) btnStop.style.display = 'inline-flex';
   term.className = 'terminal visible'; term.textContent = '';
 
   const r = await fetch(`${API}/ingest`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira,path}) });
@@ -911,10 +1048,7 @@ async function runIngest() {
     term.scrollTop = term.scrollHeight;
   }
   btn.disabled = false; btn.innerHTML = '<span>⊕</span> Загрузить и конвертировать';
-  // Показываем кнопку обработки всегда — даже если были ошибки конвертации
-  const procBtn = document.getElementById('btn-process');
-  procBtn.style.display = 'inline-flex';
-  procBtn.setAttribute('data-jira', jira);
+  if (btnStop) btnStop.style.display = 'none';
   selectProject(jira);
   await loadProjects(); renderProjectsList(); renderOverview();
 }
@@ -923,9 +1057,13 @@ async function runProcess() {
   const jira = document.getElementById('btn-process').getAttribute('data-jira') || state.project;
   if (!jira) return alert('Выбери проект');
   const btn = document.getElementById('btn-process');
-  const term = document.getElementById('terminal-ingest');
+  const btnStop = document.getElementById('btn-stop-process');
+  const btnSkip = document.getElementById('btn-skip-process');
+  const term = document.getElementById('terminal-process');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Обрабатываю...';
-  term.className = 'terminal visible';
+  if (btnStop) btnStop.style.display = 'inline-flex';
+  if (btnSkip) btnSkip.style.display = 'inline-flex';
+  if (term) { term.className = 'terminal visible'; term.textContent = ''; }
 
   const progressBlock = document.getElementById('progress-block');
   const progressFill = document.getElementById('progress-fill');
@@ -942,10 +1080,8 @@ async function runProcess() {
     const {value, done} = await reader.read();
     if (done) break;
     const chunk = decoder.decode(value);
-    term.textContent += chunk;
-    term.scrollTop = term.scrollHeight;
+    if (term) { term.textContent += chunk; term.scrollTop = term.scrollHeight; }
 
-    // Парсим [X/Y] из вывода process.sh
     var match = chunk.match(/\[(\d+)\/(\d+)\]/);
     if (match) {
       current = parseInt(match[1]);
@@ -953,8 +1089,6 @@ async function runProcess() {
       var pct = Math.round((current / total) * 100);
       if (progressFill) progressFill.style.width = pct + '%';
       if (progressText) progressText.textContent = 'Файл ' + current + ' из ' + total + ' (' + pct + '%)';
-
-      // ETA
       if (current > 1) {
         var elapsed = (Date.now() - startTime) / 1000;
         var perFile = elapsed / current;
@@ -964,15 +1098,15 @@ async function runProcess() {
         if (progressEta) progressEta.textContent = 'осталось ~' + (mins > 0 ? mins + 'м ' : '') + secs + 'с';
       }
     }
-
-    // Финал
     if (chunk.includes('=== Готово ===')) {
       if (progressFill) progressFill.style.width = '100%';
       if (progressText) progressText.textContent = '✓ Обработка завершена';
       if (progressEta) progressEta.textContent = '';
     }
   }
-  btn.disabled = false; btn.innerHTML = '<span>▶</span> Обработать через Ollama';
+  btn.disabled = false; btn.innerHTML = '<span>▶</span> Запустить обработку';
+  if (btnStop) btnStop.style.display = 'none';
+  if (btnSkip) btnSkip.style.display = 'none';
   await loadProjects(); renderProjectsList(); renderOverview();
 }
 
@@ -1042,10 +1176,10 @@ async function reprocessSelected() {
 
 // === CHAT ===
 async function sendChat() {
-  const jira = document.getElementById('chat-jira').value;
+  const jiras = getSelectedChips('chat-projects');
   const question = document.getElementById('chat-input').value.trim();
-  if (!jira || !question) return;
-  selectProject(jira);
+  if (!jiras.length || !question) return;
+  if (jiras.length === 1) selectProject(jiras[0]);
 
   const msgs = document.getElementById('chat-messages');
   if (msgs.querySelector('.empty')) msgs.innerHTML = '';
@@ -1057,7 +1191,7 @@ async function sendChat() {
   msgs.innerHTML += `<div class="msg msg-ai" id="msg-pending">...</div>`;
   msgs.scrollTop = msgs.scrollHeight;
 
-  const r = await fetch(`${API}/chat`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira, question}) });
+  const r = await fetch(`${API}/chat`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jiras, question}) });
   const text = await r.text();
   document.getElementById('msg-pending').id = '';
   var lastMsg = document.querySelector('.msg-ai:last-child');
@@ -1079,10 +1213,11 @@ async function sendChat() {
 
 // === CHAT CLAUDE ===
 async function sendChatClaude() {
-  const jira = document.getElementById('chat-jira').value;
+  const jiras = getSelectedChips('chat-projects');
+  const jira = jiras[0] || state.project;
   const question = document.getElementById('chat-input').value.trim();
-  if (!jira || !question) return;
-  selectProject(jira);
+  if (!jiras.length || !question) return;
+  if (jiras.length === 1) selectProject(jira);
 
   const msgs = document.getElementById('chat-messages');
   if (msgs.querySelector('.empty')) msgs.innerHTML = '';
@@ -1157,15 +1292,15 @@ function selectSection(el, section) {
 }
 
 function updateArtifactContext() {
-  const jira = document.getElementById('artifact-jira').value;
-  if (jira) selectProject(jira);
+  const jiras = getSelectedChips('artifact-projects');
+  if (jiras.length === 1) selectProject(jiras[0]);
 }
 
 async function generateArtifact() {
-  const jira = document.getElementById('artifact-jira').value;
+  const jiras = getSelectedChips('artifact-projects');
   const template = document.getElementById('artifact-type').value;
   const question = document.getElementById('artifact-question').value.trim();
-  if (!jira) return alert('Выбери проект');
+  if (!jiras.length) return alert('Выбери проект');
 
   const btn = document.getElementById('btn-artifact');
   const out = document.getElementById('artifact-output');
@@ -1174,7 +1309,7 @@ async function generateArtifact() {
 
   const r = await fetch(`${API}/artifact`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ jira, template: template || undefined, section: state.selectedSection, question: question || undefined })
+    body: JSON.stringify({ jiras, template: template || undefined, section: state.selectedSection, question: question || undefined })
   });
   const text = await r.text();
   if (typeof marked !== 'undefined') {
@@ -1231,10 +1366,11 @@ function renderCustomSections(sections) {
 
 // === CLAUDE API ===
 async function generateArtifactClaude() {
-  const jira = document.getElementById('artifact-jira').value;
+  const jiras = getSelectedChips('artifact-projects');
+  const jira = jiras[0] || state.project;
   const template = document.getElementById('artifact-type').value;
   const question = document.getElementById('artifact-question').value.trim();
-  if (!jira) return alert('Выбери проект');
+  if (!jiras.length) return alert('Выбери проект');
 
   const btn = document.getElementById('btn-artifact-claude');
   const out = document.getElementById('artifact-output');
@@ -1333,7 +1469,7 @@ async function saveToKnowledge(btn) {
   var actions = clone.querySelector('.msg-actions');
   if (actions) actions.remove();
   var text = (clone.innerText || clone.textContent).trim();
-  var jira = document.getElementById('chat-jira').value || state.project;
+  var jira = (getSelectedChips('chat-projects')[0]) || state.project;
   if (!jira) { alert('Выбери проект'); return; }
 
   var orig = btn.textContent;
@@ -1442,6 +1578,18 @@ async function loadSettings() {
       }
     }
   }
+  // MAX_CHARS
+  const mcInput = document.getElementById('max-chars');
+  const mcHint = document.getElementById('max-chars-hint');
+  if (mcInput && data.maxCharsAuto !== undefined) {
+    if (data.maxCharsIsManual) {
+      mcInput.value = data.maxChars;
+      if (mcHint) mcHint.textContent = `ручное значение (авто было бы: ${data.maxCharsAuto.toLocaleString()})`;
+    } else {
+      mcInput.value = '';
+      if (mcHint) mcHint.textContent = `авто: ${data.maxCharsAuto.toLocaleString()} (ОЗУ ${data.ramGB}ГБ, ${data.ollamaModel})`;
+    }
+  }
 }
 
 async function saveSettings() {
@@ -1450,10 +1598,12 @@ async function saveSettings() {
   const modelCustom = document.getElementById('model-custom');
   const model = modelSelect.value === 'custom' ? modelCustom.value.trim() : modelSelect.value;
   const ollamaModel = document.getElementById('ollama-model').value;
+  const maxCharsRaw = document.getElementById('max-chars').value.trim();
   const body = {};
   if (key) body.ANTHROPIC_API_KEY = key;
   if (model) body.CLAUDE_MODEL = model;
   if (ollamaModel) body.OLLAMA_MODEL = ollamaModel;
+  body.MAX_CHARS = maxCharsRaw; // пустая строка = сброс на авто
   const r = await fetch(API + '/settings', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -1610,6 +1760,145 @@ async function createSkillFromKnowledge() {
     document.getElementById('skill-from-knowledge-name').value = '';
     loadSkillsList();
   }
+}
+
+// === PER-PROJECT SKILL ===
+function updateSkillFilenames(jira) {
+  const fn = jira + '-SKILL.md';
+  ['skill-filename-desc','skill-filename-label','skill-filename-btn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = fn;
+  });
+}
+
+async function loadProjectSkillIfExists(jira) {
+  const r = await fetch(`${API}/skill/${jira}`).catch(() => null);
+  if (!r) return;
+  const data = await r.json().catch(() => ({}));
+  const ta = document.getElementById('skill-textarea');
+  const badge = document.getElementById('skill-status-badge');
+  const btnPromote = document.getElementById('btn-promote-skill');
+  const btnDelete = document.getElementById('btn-delete-skill');
+  if (data.exists) {
+    if (ta) ta.value = data.content;
+    if (badge) badge.textContent = '✓ сохранён';
+    if (btnPromote) btnPromote.style.display = 'inline-flex';
+    if (btnDelete) btnDelete.style.display = 'inline-flex';
+  } else {
+    if (ta) ta.value = '';
+    if (badge) badge.textContent = '';
+    if (btnPromote) btnPromote.style.display = 'none';
+    if (btnDelete) btnDelete.style.display = 'none';
+  }
+}
+
+async function loadGlobalSkillsIntoSelect() {
+  const sel = document.getElementById('global-skill-select');
+  if (!sel) return;
+  const r = await fetch(`${API}/skills`).catch(() => null);
+  if (!r) return;
+  const skills = await r.json().catch(() => []);
+  const global = skills.filter(s => !s.builtin);
+  sel.innerHTML = global.length
+    ? '<option value="">— выбрать —</option>' + global.map(s => `<option value="${s.name}">${s.name}</option>`).join('')
+    : '<option value="">— нет доступных скиллов —</option>';
+}
+
+async function analyzeForSkill() {
+  const jira = state.project || document.getElementById('ingest-jira').value.trim();
+  if (!jira) return alert('Выбери проект');
+  const btn = document.getElementById('btn-analyze-skill');
+  const term = document.getElementById('terminal-skill');
+  const ta = document.getElementById('skill-textarea');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Анализирую...';
+  if (term) { term.style.display = 'block'; term.className = 'terminal visible'; term.textContent = ''; }
+  if (ta) ta.value = '';
+
+  const r = await fetch(`${API}/analyze-for-skill`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ jira })
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    btn.disabled = false; btn.innerHTML = '<span>⇒</span> Проанализировать и предложить скилл';
+    if (term) term.textContent = 'Ошибка: ' + (err.error || r.statusText);
+    return;
+  }
+  const reader = r.body.getReader(); const decoder = new TextDecoder();
+  let result = '';
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    result += chunk;
+    if (ta) ta.value = result;
+  }
+  btn.disabled = false; btn.innerHTML = '<span>⇒</span> Проанализировать и предложить скилл';
+  if (term) term.style.display = 'none';
+}
+
+async function saveProjectSkill() {
+  const jira = state.project || document.getElementById('ingest-jira').value.trim();
+  const content = document.getElementById('skill-textarea').value.trim();
+  if (!jira || !content) return alert('Выбери проект и введи содержимое скилла');
+  const r = await fetch(`${API}/save-skill`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ jira, content })
+  });
+  const data = await r.json().catch(() => ({}));
+  if (data.ok) {
+    const badge = document.getElementById('skill-status-badge');
+    if (badge) badge.textContent = '✓ сохранён';
+    const btnPromote = document.getElementById('btn-promote-skill');
+    const btnDelete = document.getElementById('btn-delete-skill');
+    if (btnPromote) btnPromote.style.display = 'inline-flex';
+    if (btnDelete) btnDelete.style.display = 'inline-flex';
+  }
+}
+
+async function deleteProjectSkill() {
+  const jira = state.project || document.getElementById('ingest-jira').value.trim();
+  if (!jira) return;
+  if (!confirm(`Удалить скилл ${jira}-SKILL.md?`)) return;
+  await fetch(`${API}/skill/${jira}`, { method: 'DELETE' });
+  const ta = document.getElementById('skill-textarea');
+  const badge = document.getElementById('skill-status-badge');
+  const btnPromote = document.getElementById('btn-promote-skill');
+  const btnDelete = document.getElementById('btn-delete-skill');
+  if (ta) ta.value = '';
+  if (badge) badge.textContent = '';
+  if (btnPromote) btnPromote.style.display = 'none';
+  if (btnDelete) btnDelete.style.display = 'none';
+}
+
+async function promoteSkill() {
+  const jira = state.project || document.getElementById('ingest-jira').value.trim();
+  if (!jira) return;
+  const name = prompt('Имя глобального скилла:', jira.toLowerCase() + '-domain');
+  if (!name) return;
+  const r = await fetch(`${API}/skill/${jira}/promote`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ targetName: name })
+  });
+  const data = await r.json().catch(() => ({}));
+  if (data.ok) { alert('Скилл сохранён глобально: ' + data.name); loadSkillsList(); }
+  else alert('Ошибка: ' + (data.error || 'неизвестная'));
+}
+
+function skipSkillStep() {
+  const cardProcess = document.getElementById('card-process');
+  if (cardProcess) cardProcess.style.display = 'block';
+}
+
+async function applyGlobalSkill() {
+  const sel = document.getElementById('global-skill-select');
+  const name = sel ? sel.value : '';
+  if (!name) return alert('Выбери скилл из списка');
+  const r = await fetch(`${API}/skills/${name}`).catch(() => null);
+  if (!r) return;
+  const content = await r.text();
+  const ta = document.getElementById('skill-textarea');
+  if (ta) ta.value = content;
 }
 
 init();
