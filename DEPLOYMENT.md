@@ -124,28 +124,36 @@ logs/ingest-ARCH-123-20260520_143012.log
 logs/process-ARCH-123-20260520_144500.log
 ```
 
+Большие файлы режутся на чанки по `MAX_CHARS` — каждый чанк идёт через модель
+отдельной строкой `[START-MODEL] ... chunk=N/M`.
+
 Ключевые маркеры:
 
 ```
 [INFO] Используется скилл проекта: ARCH-123-SKILL.md
-[START-MODEL] file=spec.md doc_type=hld chars=7420 model=gemma3:12b num_ctx=12800
-[END-MODEL]   file=spec.md elapsed=45s response_len=2341
+[FILE-CHUNKS] file=spec.md chunks=9 doc_type=hld
+[START-MODEL] file=spec.md chunk=1/9 doc_type=hld chars=10000 model=gemma3:12b num_ctx=12288
+[END-MODEL]   file=spec.md chunk=1/9 elapsed=60s response_len=2341
 [OK]   Создан: architecture.md
 [OK]   Обновлён: requirements.md
+[INFO] Файл готов: успешно 9/9 чанков
 [WARN] Гарблед контент (18% читаемых символов) — пропускаю: scan.md
-[TIMEOUT] file=big-doc.md elapsed=180s
+[TIMEOUT] file=big-doc.md chunk=4/9 elapsed=180s
 [DONE] ok=5 skip=2 err=1
 ```
 
 Расшифровка:
 | Строка | Значение |
 |--------|----------|
-| `chars=7420` | Размер контента, переданный в модель |
-| `num_ctx=12800` | Размер контекстного окна Ollama |
-| `elapsed=45s` | Время ответа модели на файл |
+| `[FILE-CHUNKS] chunks=9` | Файл разбит на 9 чанков, каждый обрабатывается отдельно |
+| `chunk=1/9` | Текущий чанк из общего числа |
+| `chars=10000` | Размер чанка, переданный в модель (≤ MAX_CHARS) |
+| `num_ctx=12288` | Размер контекстного окна Ollama |
+| `elapsed=60s` | Время ответа модели на чанк |
 | `response_len=2341` | Модель вернула ответ, JSON парсится |
+| `Файл готов: успешно 9/9` | Сколько чанков файла обработано без ошибок |
 | `Гарблед контент (18%)` | PDF с битой кодировкой, файл корректно пропущен |
-| `[TIMEOUT]` | Модель не ответила за 180с |
+| `[TIMEOUT]` | Модель не ответила за 180с на чанке |
 
 ---
 

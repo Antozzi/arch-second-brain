@@ -116,7 +116,7 @@ mkdir -p "$KNOWLEDGE_JIRA"
 
 SKILL_FILE="$KNOWLEDGE_JIRA/${JIRA}-SKILL.md"
 if [[ -f "$SKILL_FILE" ]]; then
-  SYSTEM_PROMPT="$(tr -d '\r' < "$SKILL_FILE" | sed 's/^```[a-z]*$//' | sed '/^```$/d' | sed '/^[[:space:]]*$/d' | sed '1{/^[[:space:]]*$/d}')"
+  SYSTEM_PROMPT="$(tr -d '\r' < "$SKILL_FILE" | sed 's/^```[a-z]*$//' | sed '/^```$/d' | sed '/^[[:space:]]*$/d')"
   SKILL_ACTIVE="true"
   info "Используется скилл проекта: ${JIRA}-SKILL.md"
 else
