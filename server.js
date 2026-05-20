@@ -15,7 +15,7 @@ function loadEnv() {
   return env;
 }
 let ENV = loadEnv();
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, rmSync, mkdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -158,6 +158,65 @@ function getKnowledgeContext(jira) {
     ctx += `\n\n### ${f}\n${readFileSync(join(dir, f), 'utf8').slice(0, 3000)}`;
   }
   return ctx;
+}
+
+// =============================================================================
+// PlantUML — генерация диаграмм из знаний + локальный рендер через jar/Java
+// =============================================================================
+
+const DIAGRAM_SPECS = {
+  sequence:    { label: 'Sequence — последовательность', start: '@startuml',    hint: 'participant/actor, стрелки -> ->> --> , блоки alt/loop/opt/par, activate/deactivate.' },
+  usecase:     { label: 'Use Case — варианты использования', start: '@startuml', hint: 'actor "Роль", usecase "Действие", связи -->, группировка rectangle/package.' },
+  class:       { label: 'Class — классы', start: '@startuml',                   hint: 'class с полями и методами, связи наследования --|>, композиции --*, агрегации --o, зависимости ..>.' },
+  component:   { label: 'Component — компоненты системы', start: '@startuml',    hint: 'component [Имя], interface, package/node для группировки, связи -->. Подходит для архитектуры AS-IS / TO-BE.' },
+  deployment:  { label: 'Deployment — развёртывание', start: '@startuml',        hint: 'node, artifact, database, cloud, frame; связи --> с подписями протоколов.' },
+  activity:    { label: 'Activity — процесс / алгоритм', start: '@startuml',     hint: 'Новый синтаксис: start / stop, :действие;, if (условие?) then (да)/else (нет)/endif, fork/fork again.' },
+  state:       { label: 'State — состояния', start: '@startuml',                hint: 'state "Имя", [*] начальное и конечное состояние, переходы --> с подписями событий.' },
+  er:          { label: 'ER — модель данных', start: '@startuml',               hint: 'entity "Таблица" с атрибутами, связи crow-foot: ||--o{, }|--|| и т.п.' },
+  c4context:   { label: 'C4 — System Context', start: '@startuml',              hint: 'Первая строка после @startuml: !include <C4/C4_Context>. Элементы Person(), System(), System_Ext(), Rel().' },
+  c4container: { label: 'C4 — Container', start: '@startuml',                   hint: 'Первая строка после @startuml: !include <C4/C4_Container>. Элементы Person(), Container(), ContainerDb(), System_Ext(), Rel().' },
+  mindmap:     { label: 'MindMap — карта мыслей', start: '@startmindmap',        hint: 'Блок @startmindmap / @endmindmap. Уровни задаются числом звёздочек: *, **, ***.' },
+  gantt:       { label: 'Gantt — план-график', start: '@startgantt',            hint: 'Блок @startgantt / @endgantt. [Задача] lasts N days; [Б] starts after [А]\\u0027s end.' },
+  wbs:         { label: 'WBS — структура работ', start: '@startwbs',            hint: 'Блок @startwbs / @endwbs. Иерархия через *, **, ***.' },
+  json:        { label: 'JSON — структура данных', start: '@startjson',         hint: 'Блок @startjson / @endjson с валидным JSON-объектом внутри.' },
+};
+
+function extractUml(text) {
+  if (!text) return '';
+  const t = text.replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '');
+  const m = t.match(/@start\w+[\s\S]*?@end\w+/);
+  return (m ? m[0] : t).trim();
+}
+
+function plantumlCmd() {
+  const bundled = join(__dirname, 'vendor', 'plantuml.jar');
+  if (existsSync(bundled)) return { cmd: 'java', args: ['-jar', bundled] };
+  if (ENV.PLANTUML_JAR && existsSync(ENV.PLANTUML_JAR)) return { cmd: 'java', args: ['-jar', ENV.PLANTUML_JAR] };
+  return { cmd: 'plantuml', args: [] }; // brew/choco/scoop кладут команду в PATH
+}
+
+function renderPlantuml(uml) {
+  return new Promise((resolve, reject) => {
+    const { cmd, args } = plantumlCmd();
+    let child;
+    try {
+      child = spawn(cmd, [...args, '-tsvg', '-pipe', '-charset', 'UTF-8']);
+    } catch (e) { return reject(new Error('PlantUML/Java не найден. Установи: brew install plantuml')); }
+    let out = Buffer.alloc(0), err = '';
+    const timer = setTimeout(() => { child.kill(); reject(new Error('PlantUML: таймаут рендера')); }, 30000);
+    child.on('error', () => { clearTimeout(timer); reject(new Error('PlantUML/Java не найден. Установи: brew install plantuml (см. INSTALLATION.md)')); });
+    child.stdout.on('data', d => { out = Buffer.concat([out, d]); });
+    child.stderr.on('data', d => { err += d; });
+    child.on('close', code => {
+      clearTimeout(timer);
+      const svg = out.toString('utf8');
+      if (svg.includes('<svg')) resolve(svg);
+      else reject(new Error(err.trim() || `PlantUML вернул пустой результат (код ${code})`));
+    });
+    child.stdin.on('error', () => {});
+    child.stdin.write(uml, 'utf8');
+    child.stdin.end();
+  });
 }
 
 const server = createServer(async (req, res) => {
@@ -318,6 +377,91 @@ ${context.slice(0, 14000)}
         const data = await r.json();
         res.end(data.response || 'Нет ответа');
       } catch(e) { res.end('Ошибка модели: ' + e.message); }
+      return;
+    }
+
+    // GET /api/diagram-types — список доступных типов PlantUML-диаграмм
+    if (req.method === 'GET' && url.pathname === '/api/diagram-types') {
+      return json(res, Object.entries(DIAGRAM_SPECS).map(([id, s]) => ({ id, label: s.label })));
+    }
+
+    // POST /api/diagram — модель строит PlantUML-код из знаний проектов
+    if (req.method === 'POST' && url.pathname === '/api/diagram') {
+      const { jira, jiras, diagramType, prompt: userPrompt, engine } = await getBody(req);
+      const projectList = (jiras && jiras.length) ? jiras : (jira ? [jira] : []);
+      const spec = DIAGRAM_SPECS[diagramType];
+      if (!spec) return json(res, { error: 'неизвестный тип диаграммы' }, 400);
+      if (!projectList.length) return json(res, { error: 'jira/jiras обязательны' }, 400);
+
+      let context = '';
+      for (const j of projectList) {
+        const c = getKnowledgeContext(j);
+        if (c) context += `\n\n=== Проект ${j} ===\n${c}`;
+      }
+      const task = (userPrompt && userPrompt.trim()) || 'Построй диаграмму на основе ключевой информации из базы знаний.';
+      const sys = 'Ты Solution Architect. Ты строишь диаграммы PlantUML по базе знаний проектов.';
+      const userMsg = `Тип диаграммы: ${spec.label}
+Правила синтаксиса PlantUML: ${spec.hint}
+
+ЗАДАЧА: ${task}
+
+КРИТИЧЕСКИЕ ПРАВИЛА ВЫВОДА:
+- Верни ТОЛЬКО код PlantUML — от ${spec.start} до соответствующего @end-тега.
+- НИКАКОГО текста, объяснений или markdown-ограждений до или после кода.
+- Подписи элементов — по-русски; латиницей только технические идентификаторы.
+- Используй только факты из базы знаний — не выдумывай элементы.
+- Код должен быть синтаксически корректным PlantUML.
+
+База знаний проектов ${projectList.join(', ')}:
+${context.slice(0, 11000)}`;
+
+      try {
+        let raw = '';
+        if (engine === 'claude') {
+          if (!ENV.ANTHROPIC_API_KEY) return json(res, { error: 'Anthropic API ключ не задан. Добавь его в Настройках.' }, 400);
+          const r = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': ENV.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({
+              model: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6',
+              max_tokens: 4000,
+              system: sys,
+              messages: [{ role: 'user', content: userMsg }]
+            }),
+            signal: AbortSignal.timeout(120000)
+          });
+          const data = await r.json();
+          if (data.error) return json(res, { error: 'Ошибка API: ' + data.error.message }, 502);
+          raw = data.content?.[0]?.text || '';
+        } else {
+          const r = await fetch('http://localhost:11434/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: ENV.OLLAMA_MODEL || 'llama3.1:8b', prompt: sys + '\n\n' + userMsg, stream: false, options: { temperature: 0.1, num_ctx: 8192 } }),
+            signal: AbortSignal.timeout(120000)
+          });
+          const data = await r.json();
+          raw = data.response || '';
+        }
+        const uml = extractUml(raw);
+        if (!uml) return json(res, { error: 'модель не вернула код диаграммы' }, 502);
+        return json(res, { uml });
+      } catch (e) {
+        return json(res, { error: 'Ошибка модели: ' + e.message }, 502);
+      }
+    }
+
+    // POST /api/render-uml — рендер PlantUML-кода в SVG через локальный jar
+    if (req.method === 'POST' && url.pathname === '/api/render-uml') {
+      const { uml } = await getBody(req);
+      if (!uml || !uml.trim()) return json(res, { error: 'uml обязателен' }, 400);
+      try {
+        const svg = await renderPlantuml(uml);
+        cors(res); res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8' });
+        res.end(svg);
+      } catch (e) {
+        return json(res, { error: e.message }, 500);
+      }
       return;
     }
 

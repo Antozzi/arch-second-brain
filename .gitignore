@@ -17,4 +17,6 @@ knowledge/patterns/*
 !knowledge/patterns/.gitkeep
 logs/*
 !logs/.gitkeep
+vendor/*
+!vendor/.gitkeep
 .claude/

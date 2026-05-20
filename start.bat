@@ -36,6 +36,30 @@ if errorlevel 1 (
   echo   [OK] Ollama работает
 )
 
+:: --- проверка PlantUML (рендер диаграмм) ---
+if exist "vendor\plantuml.jar" (
+  echo   [OK] PlantUML jar найден ^(диаграммы доступны^)
+) else (
+  where plantuml >nul 2>&1
+  if not errorlevel 1 (
+    echo   [OK] PlantUML в PATH ^(диаграммы доступны^)
+  ) else (
+    where java >nul 2>&1
+    if errorlevel 1 (
+      echo   [--] Java не найдена - рендер диаграмм недоступен ^(см. INSTALLATION.md^)
+    ) else (
+      echo   [..] Скачиваю PlantUML jar ^(~26МБ, один раз^)...
+      if not exist "vendor" mkdir vendor
+      curl -sL -o "vendor\plantuml.jar" "https://github.com/plantuml/plantuml/releases/download/v1.2026.3/plantuml-1.2026.3.jar"
+      if exist "vendor\plantuml.jar" (
+        echo   [OK] PlantUML jar установлен
+      ) else (
+        echo   [WARN] не удалось скачать PlantUML - рендер диаграмм недоступен
+      )
+    )
+  )
+)
+
 :: --- проверка .env ---
 if exist ".env" (
   echo   [OK] .env найден ^(API ключи загружены^)

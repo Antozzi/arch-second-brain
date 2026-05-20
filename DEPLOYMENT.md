@@ -207,6 +207,27 @@ ollama pull qwen2.5:7b
 
 Проверь баланс: https://console.anthropic.com/settings/billing
 
+### PlantUML: диаграмма не рендерится
+
+Превью показывает «PlantUML недоступен». Проверь:
+
+```bash
+java -version                       # нужна Java (любая 8+)
+ls -lh vendor/plantuml.jar           # jar на месте? (~26 МБ)
+```
+
+- Нет Java → `brew install openjdk` (macOS/Linux) / `winget install Microsoft.OpenJDK.21` (Windows)
+- Нет jar → перезапусти `./start.sh` — он скачает автоматически, либо `brew install plantuml`
+- Превью с красным текстом `Syntax Error` — это ошибка в самом коде PlantUML: отредактируй код в левом поле и нажми **↻ Обновить превью**
+
+Проверка рендера вручную:
+
+```bash
+echo '@startuml
+A -> B: test
+@enduml' | java -jar vendor/plantuml.jar -tsvg -pipe -charset UTF-8 | head -c 60
+```
+
 ### Windows: bash-скрипты не работают
 
 Убедись что Git for Windows установлен и `C:\Program Files\Git\bin` есть в PATH.

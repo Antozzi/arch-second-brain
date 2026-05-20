@@ -31,6 +31,25 @@ else
   echo "  [OK] Ollama работает"
 fi
 
+# --- проверка PlantUML (рендер диаграмм) ---
+if [[ -f "vendor/plantuml.jar" ]]; then
+  echo "  [OK] PlantUML jar найден (диаграммы доступны)"
+elif command -v plantuml &>/dev/null; then
+  echo "  [OK] PlantUML в PATH (диаграммы доступны)"
+elif command -v java &>/dev/null; then
+  echo "  [..] Скачиваю PlantUML jar (~26МБ, один раз)..."
+  mkdir -p vendor
+  if curl -sL -o "vendor/plantuml.jar" \
+    "https://github.com/plantuml/plantuml/releases/download/v1.2026.3/plantuml-1.2026.3.jar"; then
+    echo "  [OK] PlantUML jar установлен"
+  else
+    rm -f vendor/plantuml.jar
+    echo "  [WARN] не удалось скачать PlantUML — рендер диаграмм недоступен"
+  fi
+else
+  echo "  [--] Java не найдена — рендер диаграмм недоступен (см. INSTALLATION.md)"
+fi
+
 # --- проверка .env ---
 if [[ -f ".env" ]]; then
   echo "  [OK] .env найден (API ключи загружены)"

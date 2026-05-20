@@ -370,6 +370,34 @@
   .artifact-output blockquote { border-left: 2px solid var(--accent); padding: 4px 12px; margin: 8px 0; color: var(--text2); font-style: italic; background: rgba(124,106,247,0.05); border-radius: 0 4px 4px 0; }
   .artifact-output.visible { display: block; }
 
+  /* Artifact mode toggle */
+  .mode-toggle { display: flex; gap: 6px; margin-bottom: 14px; }
+  .mode-btn {
+    flex: 1; padding: 9px 14px; font-family: var(--display); font-size: 12px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text2); cursor: pointer; transition: all .15s;
+  }
+  .mode-btn:hover { color: var(--text); border-color: var(--border2); }
+  .mode-btn.active { background: rgba(124,106,247,0.12); border-color: var(--accent); color: var(--accent2); }
+
+  /* Diagram split */
+  .dia-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+  #artifact-dia-uml {
+    width: 100%; min-height: 380px; resize: vertical;
+    font-family: var(--mono); font-size: 11px; line-height: 1.6;
+  }
+  .dia-preview {
+    min-height: 380px; background: #fff; border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; overflow: auto;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .dia-preview svg { max-width: 100%; height: auto; }
+  .dia-preview.empty { color: var(--text3); font-size: 11px; background: var(--surface2); }
+  .dia-preview .dia-err {
+    color: #c0392b; font-family: var(--mono); font-size: 11px;
+    white-space: pre-wrap; text-align: left;
+  }
+
   /* Stats */
   .stats-row { display: flex; gap: 12px; margin-bottom: 16px; }
   .stat {
@@ -631,7 +659,12 @@
 
     <!-- ARTIFACT VIEW -->
     <div id="view-artifact" style="display:none">
-      <div class="card">
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="mode-btn-text" onclick="setArtifactMode('text')">📄 Текстовый раздел</button>
+        <button class="mode-btn" id="mode-btn-diagram" onclick="setArtifactMode('diagram')">◫ PlantUML диаграмма</button>
+      </div>
+
+      <div class="card" id="artifact-card-text">
         <div class="card-title">◈ Генерация раздела артефакта</div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
@@ -678,6 +711,57 @@
         </div>
 
         <div class="artifact-output" id="artifact-output"></div>
+      </div>
+
+      <div class="card" id="artifact-card-diagram" style="display:none">
+        <div class="card-title">◫ Генерация PlantUML-диаграммы</div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="field">
+            <label>Проекты <span style="color:var(--text3);font-size:10px">(можно выбрать несколько)</span></label>
+            <div class="project-chips" id="artifact-dia-projects"></div>
+          </div>
+          <div class="field">
+            <label>Тип диаграммы</label>
+            <select id="artifact-dia-type"></select>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:14px">
+          <label>Что изобразить <span style="color:var(--text3);font-size:10px">(промпт для модели)</span></label>
+          <textarea id="artifact-dia-prompt" placeholder="Например: покажи интеграции системы ESS со смежными системами с протоколами" style="min-height:90px;resize:vertical"></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="generateDiagram('ollama')" id="btn-dia-ollama">
+            <span>◫</span> Ollama
+          </button>
+          <button class="btn btn-ghost" onclick="generateDiagram('claude')" id="btn-dia-claude" style="background:rgba(124,106,247,0.08);border-color:rgba(124,106,247,0.3);color:var(--accent2)">
+            <span>✦</span> Claude API
+          </button>
+        </div>
+
+        <div class="dia-split">
+          <div class="field" style="margin:0">
+            <label>PlantUML код <span style="color:var(--text3);font-size:10px">(редактируемый)</span></label>
+            <textarea id="artifact-dia-uml" placeholder="@startuml ... @enduml" oninput="state.diaDirty=true"></textarea>
+            <div class="btn-row" style="margin-top:8px">
+              <button class="btn btn-primary" onclick="renderDiagram()" id="btn-dia-render">
+                <span>↻</span> Обновить превью
+              </button>
+              <button class="btn btn-ghost" onclick="copyUml()" id="btn-dia-copy">
+                <span>⎘</span> Копировать код
+              </button>
+              <button class="btn btn-ghost" onclick="downloadSvg()" id="btn-dia-svg" style="display:none">
+                <span>⤓</span> Скачать SVG
+              </button>
+            </div>
+          </div>
+          <div class="field" style="margin:0">
+            <label>Превью</label>
+            <div class="dia-preview empty" id="artifact-dia-preview">диаграмма появится здесь</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -824,7 +908,7 @@
 
 <script>
 const API = 'http://localhost:3030/api';
-let state = { view: 'ingest', project: null, projects: [], templates: [], selectedSection: null, customTemplate: null, customTemplateSections: [], chatHistory: [] };
+let state = { view: 'ingest', project: null, projects: [], templates: [], selectedSection: null, customTemplate: null, customTemplateSections: [], chatHistory: [], artifactMode: 'text', diaSvg: null, diaTypesLoaded: false };
 
 // === INIT ===
 async function init() {
@@ -869,6 +953,7 @@ function populateSelects() {
 
   renderProjectChips('chat-projects', state.projects);
   renderProjectChips('artifact-projects', state.projects);
+  renderProjectChips('artifact-dia-projects', state.projects);
 
   if (state.project) {
     ['skipped-jira','skill-from-knowledge-jira'].forEach(id => {
@@ -877,6 +962,7 @@ function populateSelects() {
     });
     autoSelectChip('chat-projects', state.project);
     autoSelectChip('artifact-projects', state.project);
+    autoSelectChip('artifact-dia-projects', state.project);
   }
 }
 
@@ -1334,6 +1420,117 @@ function copyArtifact() {
   const btn = document.getElementById('btn-copy-artifact');
   btn.innerHTML = '<span>✓</span> Скопировано';
   setTimeout(() => btn.innerHTML = '<span>⎘</span> Копировать', 2000);
+}
+
+// === ARTIFACT: PLANTUML DIAGRAM ===
+function setArtifactMode(mode) {
+  state.artifactMode = mode;
+  document.getElementById('mode-btn-text').classList.toggle('active', mode === 'text');
+  document.getElementById('mode-btn-diagram').classList.toggle('active', mode === 'diagram');
+  document.getElementById('artifact-card-text').style.display = mode === 'text' ? '' : 'none';
+  document.getElementById('artifact-card-diagram').style.display = mode === 'diagram' ? '' : 'none';
+  if (mode === 'diagram' && !state.diaTypesLoaded) loadDiagramTypes();
+}
+
+async function loadDiagramTypes() {
+  try {
+    const r = await fetch(`${API}/diagram-types`);
+    const types = await r.json();
+    document.getElementById('artifact-dia-type').innerHTML =
+      types.map(t => `<option value="${t.id}">${escHtml(t.label)}</option>`).join('');
+    state.diaTypesLoaded = true;
+  } catch(e) {
+    document.getElementById('artifact-dia-type').innerHTML = '<option value="">ошибка загрузки</option>';
+  }
+}
+
+async function generateDiagram(engine) {
+  const jiras = getSelectedChips('artifact-dia-projects');
+  const diagramType = document.getElementById('artifact-dia-type').value;
+  const prompt = document.getElementById('artifact-dia-prompt').value.trim();
+  if (!jiras.length) return alert('Выбери проект');
+  if (!diagramType) return alert('Выбери тип диаграммы');
+
+  const btnId = engine === 'claude' ? 'btn-dia-claude' : 'btn-dia-ollama';
+  const btn = document.getElementById(btnId);
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Генерирую...';
+  const preview = document.getElementById('artifact-dia-preview');
+  preview.className = 'dia-preview empty'; preview.textContent = 'модель строит диаграмму...';
+
+  try {
+    const r = await fetch(`${API}/diagram`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ jiras, diagramType, prompt, engine })
+    });
+    const data = await r.json();
+    if (data.error) {
+      preview.className = 'dia-preview';
+      preview.innerHTML = '<div class="dia-err">' + escHtml(data.error) + '</div>';
+    } else {
+      document.getElementById('artifact-dia-uml').value = data.uml;
+      await renderDiagram();
+    }
+  } catch(e) {
+    preview.className = 'dia-preview';
+    preview.innerHTML = '<div class="dia-err">Ошибка: ' + escHtml(e.message) + '</div>';
+  }
+  btn.disabled = false; btn.innerHTML = orig;
+}
+
+async function renderDiagram() {
+  const uml = document.getElementById('artifact-dia-uml').value.trim();
+  const preview = document.getElementById('artifact-dia-preview');
+  if (!uml) { preview.className = 'dia-preview empty'; preview.textContent = 'код пустой'; return; }
+
+  const btn = document.getElementById('btn-dia-render');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Рендер...';
+
+  try {
+    const r = await fetch(`${API}/render-uml`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ uml })
+    });
+    const ct = r.headers.get('content-type') || '';
+    if (ct.includes('image/svg')) {
+      const svg = await r.text();
+      state.diaSvg = svg;
+      preview.className = 'dia-preview';
+      preview.innerHTML = svg;
+      document.getElementById('btn-dia-svg').style.display = 'inline-flex';
+    } else {
+      const data = await r.json().catch(() => ({ error: 'не удалось отрендерить' }));
+      preview.className = 'dia-preview';
+      preview.innerHTML = '<div class="dia-err">PlantUML недоступен:\n' + escHtml(data.error || '') +
+        '\n\nСм. установку в INSTALLATION.md</div>';
+      state.diaSvg = null;
+      document.getElementById('btn-dia-svg').style.display = 'none';
+    }
+  } catch(e) {
+    preview.className = 'dia-preview';
+    preview.innerHTML = '<div class="dia-err">Ошибка рендера: ' + escHtml(e.message) + '</div>';
+  }
+  btn.disabled = false; btn.innerHTML = orig;
+}
+
+function copyUml() {
+  navigator.clipboard.writeText(document.getElementById('artifact-dia-uml').value);
+  const btn = document.getElementById('btn-dia-copy');
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span>✓</span> Скопировано';
+  setTimeout(() => btn.innerHTML = orig, 2000);
+}
+
+function downloadSvg() {
+  if (!state.diaSvg) return;
+  const type = document.getElementById('artifact-dia-type').value || 'diagram';
+  const blob = new Blob([state.diaSvg], { type: 'image/svg+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = type + '-' + Date.now() + '.svg';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 // === CUSTOM TEMPLATE ===

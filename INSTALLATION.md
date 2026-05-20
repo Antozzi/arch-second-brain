@@ -16,7 +16,7 @@
 
 ```bash
 # Все CLI инструменты одной командой
-brew install node pandoc tesseract imagemagick ollama jq gh poppler
+brew install node pandoc tesseract imagemagick ollama jq gh poppler openjdk
 
 # Claude Code CLI
 npm install -g @anthropic-ai/claude-code
@@ -231,7 +231,27 @@ source ~/.zshrc
 
 ---
 
-## Шаг 9 — Скиллы (опционально)
+## Шаг 9 — PlantUML диаграммы (опционально)
+
+В разделе **◈ Генерация артефакта** есть режим **◫ PlantUML диаграмма** — модель строит
+диаграммы (sequence, component, C4, deployment, activity, ER и др.) из базы знаний,
+с живым превью.
+
+Рендер требует **Java** (ставится в Шаге 1 как `openjdk`). Сам PlantUML
+(`vendor/plantuml.jar`, ~26 МБ) скачивается автоматически при первом запуске `./start.sh`.
+
+Если нужен ручной контроль — можно поставить PlantUML через пакетный менеджер:
+
+```bash
+brew install plantuml          # macOS / Linux
+# choco install plantuml       # Windows
+```
+
+Команда `plantuml` в PATH используется автоматически, если `vendor/plantuml.jar` отсутствует.
+
+---
+
+## Шаг 10 — Скиллы (опционально)
 
 Скиллы — это дистиллированная экспертиза для модели. Чем их больше, тем точнее ответы по предметной области.
 
