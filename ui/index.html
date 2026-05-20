@@ -486,6 +486,9 @@
     <button class="nav-btn" onclick="showView('skills')" id="nav-skills">
       <span class="icon">◆</span> Скиллы
     </button>
+    <button class="nav-btn" onclick="showView('templates')" id="nav-templates">
+      <span class="icon">◇</span> Шаблоны
+    </button>
     <button class="nav-btn" onclick="showView('settings')" id="nav-settings">
       <span class="icon">⚙</span> Настройки
     </button>
@@ -898,6 +901,110 @@
       </div>
     </div>
 
+    <!-- TEMPLATES VIEW -->
+    <div id="view-templates" style="display:none">
+      <div class="card">
+        <div class="card-title" style="justify-content:space-between">
+          <span>◇ Библиотека шаблонов</span>
+          <span id="templates-count" style="font-size:10px;color:var(--text3);font-weight:400"></span>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:12px;line-height:1.6">
+          Шаблоны автоматически появляются в <strong>◈ Генерация артефакта</strong> → режим «Текстовый раздел».
+        </div>
+        <div id="templates-list"><div class="empty">загрузка...</div></div>
+      </div>
+
+      <div class="card" id="template-preview-card" style="display:none">
+        <div class="card-title" style="justify-content:space-between">
+          <span id="template-preview-title">template.md</span>
+          <button class="btn btn-ghost btn-sm" onclick="closeTemplatePreview()">✕ Закрыть</button>
+        </div>
+        <div class="artifact-output visible" id="template-preview-content" style="max-height:500px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⊕ Создать шаблон из документа</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+          Модель извлекает структуру разделов из конвертированного документа проекта. DOCX даёт точный скелет заголовков, PDF — структуру по тексту.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="field">
+            <label>Проект</label>
+            <select id="tmpl-doc-jira" onchange="loadRawFilesForTemplate()">
+              <option value="">— выберите проект —</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Документ-образец</label>
+            <select id="tmpl-doc-file">
+              <option value="">— сначала выберите проект —</option>
+            </select>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="genTemplateFromDoc('ollama')" id="btn-tmpl-doc-ollama">
+            <span>◇</span> Ollama
+          </button>
+          <button class="btn btn-ghost" onclick="genTemplateFromDoc('claude')" id="btn-tmpl-doc-claude" style="background:rgba(124,106,247,0.08);border-color:rgba(124,106,247,0.3);color:var(--accent2)">
+            <span>✦</span> Claude API
+          </button>
+        </div>
+        <div class="field" style="margin-top:12px">
+          <label>Шаблон <span style="color:var(--text3);font-size:10px">(можно отредактировать перед сохранением)</span></label>
+          <textarea id="tmpl-doc-output" placeholder="результат генерации появится здесь" style="min-height:280px;resize:vertical;font-family:var(--mono);font-size:11px;line-height:1.6"></textarea>
+        </div>
+        <div class="field">
+          <label>Имя шаблона</label>
+          <input type="text" id="tmpl-doc-name" placeholder="например: ТЗ-структура" style="padding:7px 9px;font-size:12px">
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveTemplate('doc')" id="btn-tmpl-doc-save">
+            <span>✓</span> Сохранить шаблон
+          </button>
+        </div>
+        <div id="tmpl-doc-status" style="font-size:11px;margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⊕ Создать шаблон из ИТ-стандарта</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+          Модель собирает каноничную структуру артефакта по стандарту. Для стандартов рекомендуется <strong>Claude API</strong> — точнее знает методологии.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="field">
+            <label>Стандарт</label>
+            <select id="tmpl-std-standard" onchange="updateStandardArtifacts()"></select>
+          </div>
+          <div class="field">
+            <label>Артефакт</label>
+            <select id="tmpl-std-artifact"></select>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="genTemplateFromStandard('ollama')" id="btn-tmpl-std-ollama">
+            <span>◇</span> Ollama
+          </button>
+          <button class="btn btn-ghost" onclick="genTemplateFromStandard('claude')" id="btn-tmpl-std-claude" style="background:rgba(124,106,247,0.08);border-color:rgba(124,106,247,0.3);color:var(--accent2)">
+            <span>✦</span> Claude API
+          </button>
+        </div>
+        <div class="field" style="margin-top:12px">
+          <label>Шаблон <span style="color:var(--text3);font-size:10px">(можно отредактировать перед сохранением)</span></label>
+          <textarea id="tmpl-std-output" placeholder="результат генерации появится здесь" style="min-height:280px;resize:vertical;font-family:var(--mono);font-size:11px;line-height:1.6"></textarea>
+        </div>
+        <div class="field">
+          <label>Имя шаблона</label>
+          <input type="text" id="tmpl-std-name" placeholder="например: TOGAF-ADD" style="padding:7px 9px;font-size:12px">
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveTemplate('std')" id="btn-tmpl-std-save">
+            <span>✓</span> Сохранить шаблон
+          </button>
+        </div>
+        <div id="tmpl-std-status" style="font-size:11px;margin-top:8px"></div>
+      </div>
+    </div>
+
     <!-- SETTINGS VIEW -->
     <div id="view-settings" style="display:none">
       <div class="card">
@@ -1012,7 +1119,7 @@ function renderProjectsList() {
 
 function populateSelects() {
   const opts = state.projects.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
-  ['skipped-jira','skill-from-knowledge-jira'].forEach(id => {
+  ['skipped-jira','skill-from-knowledge-jira','tmpl-doc-jira'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     const prev = el.value;
@@ -1028,7 +1135,7 @@ function populateSelects() {
   renderProjectChips('artifact-drawio-projects', state.projects);
 
   if (state.project) {
-    ['skipped-jira','skill-from-knowledge-jira'].forEach(id => {
+    ['skipped-jira','skill-from-knowledge-jira','tmpl-doc-jira'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = state.project;
     });
@@ -1161,14 +1268,15 @@ async function deleteProject(name) {
 // === VIEWS ===
 function showView(view) {
   state.view = view;
-  ['ingest','skipped','chat','artifact','skills','settings'].forEach(v => {
+  ['ingest','skipped','chat','artifact','skills','templates','settings'].forEach(v => {
     document.getElementById(`view-${v}`).style.display = v === view ? 'block' : 'none';
     document.getElementById(`nav-${v}`).classList.toggle('active', v === view);
   });
-  const titles = { ingest:'Загрузить проект', skipped:'Пропущенные файлы', chat:'Спросить модель', artifact:'Генерация артефакта', skills:'Скиллы', settings:'Настройки' };
+  const titles = { ingest:'Загрузить проект', skipped:'Пропущенные файлы', chat:'Спросить модель', artifact:'Генерация артефакта', skills:'Скиллы', templates:'Шаблоны', settings:'Настройки' };
   document.getElementById('view-title').textContent = titles[view];
   if (view === 'skipped' && state.project) loadSkipped();
   if (view === 'skills') loadSkillsList();
+  if (view === 'templates') { loadTemplatesList(); loadStandards(); }
 }
 
 // === STOP / SKIP ===
@@ -1885,6 +1993,162 @@ async function generateArtifactClaude() {
 
   btn.disabled = false;
   btn.innerHTML = '<span>✦</span> Claude API';
+}
+
+// === TEMPLATES ===
+async function loadTemplatesList() {
+  const el = document.getElementById('templates-list');
+  const countEl = document.getElementById('templates-count');
+  el.innerHTML = '<div class="empty">загрузка...</div>';
+  const r = await fetch(API + '/templates').catch(() => null);
+  const tmpls = r ? await r.json().catch(() => []) : [];
+  if (!tmpls.length) { el.innerHTML = '<div class="empty">Нет шаблонов — создай первый ниже</div>'; countEl.textContent = '0'; return; }
+  countEl.textContent = tmpls.length + ' ' + (tmpls.length === 1 ? 'шаблон' : tmpls.length < 5 ? 'шаблона' : 'шаблонов');
+  el.innerHTML = '<div class="file-list">' + tmpls.map(t => `
+    <div class="file-item" style="flex-wrap:wrap;gap:8px">
+      <span class="file-name" style="font-weight:500">${escHtml(t.name)}</span>
+      <span style="font-size:10px;color:var(--text3)">${t.sections.length} разделов</span>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="viewTemplate('${escHtml(t.name)}')">👁 Просмотр</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteTemplate('${escHtml(t.name)}')">✕</button>
+      </div>
+    </div>`).join('') + '</div>';
+}
+
+async function viewTemplate(name) {
+  const card = document.getElementById('template-preview-card');
+  const content = document.getElementById('template-preview-content');
+  document.getElementById('template-preview-title').textContent = name + '.md';
+  card.style.display = 'block';
+  content.innerHTML = '<span style="color:var(--text3)">загрузка...</span>';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const r = await fetch(API + '/template/' + encodeURIComponent(name));
+  const d = await r.json();
+  const text = d.content || '(пусто)';
+  if (typeof marked !== 'undefined') content.innerHTML = marked.parse(text);
+  else { content.style.whiteSpace = 'pre-wrap'; content.textContent = text; }
+}
+
+function closeTemplatePreview() {
+  document.getElementById('template-preview-card').style.display = 'none';
+}
+
+async function deleteTemplate(name) {
+  if (!confirm('Удалить шаблон "' + name + '"?\n\nБудет удалён templates/' + name + '.md')) return;
+  const r = await fetch(API + '/template/' + encodeURIComponent(name), { method: 'DELETE' });
+  const d = await r.json();
+  if (d.ok) { closeTemplatePreview(); loadTemplatesList(); }
+  else alert('Ошибка: ' + (d.error || 'неизвестная'));
+}
+
+async function loadStandards() {
+  if (state.standardsLoaded) return;
+  const r = await fetch(API + '/standards').catch(() => null);
+  state.standards = r ? await r.json().catch(() => []) : [];
+  const sel = document.getElementById('tmpl-std-standard');
+  sel.innerHTML = state.standards.map(s => `<option value="${escHtml(s.id)}">${escHtml(s.label)}</option>`).join('');
+  state.standardsLoaded = true;
+  updateStandardArtifacts();
+}
+
+function updateStandardArtifacts() {
+  const id = document.getElementById('tmpl-std-standard').value;
+  const std = (state.standards || []).find(s => s.id === id);
+  document.getElementById('tmpl-std-artifact').innerHTML =
+    (std ? std.artifacts : []).map(a => `<option value="${escHtml(a)}">${escHtml(a)}</option>`).join('');
+}
+
+async function loadRawFilesForTemplate() {
+  const jira = document.getElementById('tmpl-doc-jira').value;
+  const sel = document.getElementById('tmpl-doc-file');
+  if (!jira) { sel.innerHTML = '<option value="">— сначала выберите проект —</option>'; return; }
+  sel.innerHTML = '<option value="">загрузка...</option>';
+  const r = await fetch(API + '/raw-files/' + encodeURIComponent(jira)).catch(() => null);
+  const files = r ? await r.json().catch(() => []) : [];
+  if (!files.length) { sel.innerHTML = '<option value="">нет документов в проекте</option>'; return; }
+  sel.innerHTML = files.map(f => `<option value="${escHtml(f.file)}">${escHtml(f.source)}${f.type ? ' · ' + escHtml(f.type) : ''}</option>`).join('');
+}
+
+async function genTemplateFromDoc(engine) {
+  const jira = document.getElementById('tmpl-doc-jira').value;
+  const file = document.getElementById('tmpl-doc-file').value;
+  if (!jira) return alert('Выбери проект');
+  if (!file) return alert('Выбери документ-образец');
+
+  const btn = document.getElementById(engine === 'claude' ? 'btn-tmpl-doc-claude' : 'btn-tmpl-doc-ollama');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Генерирую...';
+  const out = document.getElementById('tmpl-doc-output');
+  out.value = 'модель извлекает структуру...';
+  try {
+    const r = await fetch(API + '/template/from-document', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ jira, file, engine })
+    });
+    const d = await r.json();
+    if (d.error) { out.value = ''; alert('Ошибка: ' + d.error); }
+    else {
+      out.value = d.content;
+      if (!document.getElementById('tmpl-doc-name').value.trim())
+        document.getElementById('tmpl-doc-name').value = file.replace(/\.md$/, '') + '-tmpl';
+    }
+  } catch(e) { out.value = ''; alert('Ошибка: ' + e.message); }
+  btn.disabled = false; btn.innerHTML = orig;
+}
+
+async function genTemplateFromStandard(engine) {
+  const standard = document.getElementById('tmpl-std-standard').value;
+  const artifact = document.getElementById('tmpl-std-artifact').value;
+  if (!standard || !artifact) return alert('Выбери стандарт и артефакт');
+
+  const btn = document.getElementById(engine === 'claude' ? 'btn-tmpl-std-claude' : 'btn-tmpl-std-ollama');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Генерирую...';
+  const out = document.getElementById('tmpl-std-output');
+  out.value = 'модель собирает структуру по стандарту...';
+  try {
+    const r = await fetch(API + '/template/from-standard', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ standard, artifact, engine })
+    });
+    const d = await r.json();
+    if (d.error) { out.value = ''; alert('Ошибка: ' + d.error); }
+    else {
+      out.value = d.content;
+      if (!document.getElementById('tmpl-std-name').value.trim())
+        document.getElementById('tmpl-std-name').value = standard + '-' + artifact.split(' ').map(w => w[0]).join('');
+    }
+  } catch(e) { out.value = ''; alert('Ошибка: ' + e.message); }
+  btn.disabled = false; btn.innerHTML = orig;
+}
+
+async function saveTemplate(which) {
+  const name = document.getElementById('tmpl-' + which + '-name').value.trim();
+  const content = document.getElementById('tmpl-' + which + '-output').value.trim();
+  const status = document.getElementById('tmpl-' + which + '-status');
+  if (!name) return alert('Укажи имя шаблона');
+  if (!content) return alert('Шаблон пустой — сначала сгенерируй');
+
+  const btn = document.getElementById('btn-tmpl-' + which + '-save');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Сохраняю...';
+  status.textContent = '';
+  try {
+    const r = await fetch(API + '/template/save', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, content })
+    });
+    const d = await r.json();
+    if (d.error) { status.style.color = '#c0392b'; status.textContent = 'Ошибка: ' + d.error; }
+    else {
+      status.style.color = 'var(--green)';
+      status.textContent = 'Сохранён: templates/' + d.file + ' — доступен в Генерации артефакта';
+      loadTemplatesList();
+      await loadTemplates();
+      populateSelects();
+    }
+  } catch(e) { status.style.color = '#c0392b'; status.textContent = 'Ошибка: ' + e.message; }
+  btn.disabled = false; btn.innerHTML = orig;
 }
 
 // === UTILS HELPERS ===

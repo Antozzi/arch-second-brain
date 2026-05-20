@@ -398,6 +398,52 @@ function extractJson(text) {
   return null;
 }
 
+// =============================================================================
+// Шаблоны артефактов — генерация .md шаблонов из документов и ИТ-стандартов
+// =============================================================================
+
+const STANDARDS = {
+  TOGAF:       { label: 'TOGAF 10 — Enterprise Architecture', artifacts: ['Architecture Vision', 'Architecture Definition Document', 'Architecture Requirements Specification', 'Architecture Roadmap', 'Architecture Building Blocks'] },
+  'ISO-42010': { label: 'ISO/IEC/IEEE 42010 — Architecture Description', artifacts: ['Architecture Description', 'Stakeholders & Concerns', 'Architecture Viewpoints', 'Architecture Views'] },
+  BABOK:       { label: 'BABOK v3 — Business Analysis', artifacts: ['Business Analysis Plan', 'Requirements Documentation', 'Stakeholder Analysis', 'Solution Assessment', 'Elicitation Results'] },
+  PMBOK:       { label: 'PMBOK 7 — Project Management', artifacts: ['Project Charter', 'Project Management Plan', 'Risk Register', 'Stakeholder Register', 'Scope Statement'] },
+  'ISO-25010': { label: 'ISO/IEC 25010 — Quality Requirements (NFR)', artifacts: ['Quality Requirements Specification', 'NFR Checklist'] },
+};
+
+function stripFrontmatter(text) {
+  return (text || '')
+    .replace(/^---\n[\s\S]*?\n---\n/, '')
+    .replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '')
+    .trim();
+}
+
+function cleanTemplateMd(text) {
+  return (text || '').replace(/^```(?:markdown|md)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+}
+
+async function genText(engine, sys, userMsg, maxTokens) {
+  if (engine === 'claude') {
+    if (!ENV.ANTHROPIC_API_KEY) throw new Error('Anthropic API ключ не задан. Добавь его в Настройках.');
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ENV.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6', max_tokens: maxTokens || 4000, system: sys, messages: [{ role: 'user', content: userMsg }] }),
+      signal: AbortSignal.timeout(120000)
+    });
+    const data = await r.json();
+    if (data.error) throw new Error('Ошибка API: ' + data.error.message);
+    return data.content?.[0]?.text || '';
+  }
+  const r = await fetch('http://localhost:11434/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: ENV.OLLAMA_MODEL || 'llama3.1:8b', prompt: sys + '\n\n' + userMsg, stream: false, options: { temperature: 0.2, num_ctx: 8192 } }),
+    signal: AbortSignal.timeout(120000)
+  });
+  const data = await r.json();
+  return data.response || '';
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
@@ -421,6 +467,92 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname.startsWith('/api/skipped/')) {
       const jira = url.pathname.split('/').pop();
       return json(res, getSkippedFiles(jira));
+    }
+
+    // GET /api/standards — список ИТ-стандартов и их артефактов
+    if (req.method === 'GET' && url.pathname === '/api/standards') {
+      return json(res, Object.entries(STANDARDS).map(([id, s]) => ({ id, label: s.label, artifacts: s.artifacts })));
+    }
+
+    // GET /api/raw-files/:jira — список конвертированных raw-документов проекта
+    if (req.method === 'GET' && url.pathname.startsWith('/api/raw-files/')) {
+      const jira = decodeURIComponent(url.pathname.split('/').pop());
+      const dir = join(__dirname, 'raw', jira);
+      if (!existsSync(dir)) return json(res, []);
+      const files = readdirSync(dir).filter(f => f.endsWith('.md')).map(f => {
+        const c = readFileSync(join(dir, f), 'utf8');
+        return { file: f, source: c.match(/source: "([^"]+)"/)?.[1] || f, type: c.match(/type: "([^"]+)"/)?.[1] || '' };
+      });
+      return json(res, files);
+    }
+
+    // DELETE /api/template/:name — удалить шаблон
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/template/')) {
+      const name = decodeURIComponent(url.pathname.split('/').pop());
+      const fp = join(__dirname, 'templates', name + '.md');
+      if (!existsSync(fp)) return json(res, { error: 'not found' }, 404);
+      unlinkSync(fp);
+      return json(res, { ok: true });
+    }
+
+    // POST /api/template/save — сохранить .md шаблон в templates/
+    if (req.method === 'POST' && url.pathname === '/api/template/save') {
+      const { name, content } = await getBody(req);
+      if (!name || !content) return json(res, { error: 'name и content обязательны' }, 400);
+      const safe = name.replace(/[^a-zA-Zа-яА-Я0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'template';
+      const dir = join(__dirname, 'templates');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, safe + '.md'), cleanTemplateMd(content));
+      return json(res, { ok: true, file: safe + '.md', name: safe });
+    }
+
+    // POST /api/template/from-document — шаблон из структуры raw-документа
+    if (req.method === 'POST' && url.pathname === '/api/template/from-document') {
+      const { jira, file, engine } = await getBody(req);
+      if (!jira || !file) return json(res, { error: 'jira и file обязательны' }, 400);
+      const fp = join(__dirname, 'raw', jira, file);
+      if (!existsSync(fp)) return json(res, { error: 'файл не найден' }, 404);
+      const docBody = stripFrontmatter(readFileSync(fp, 'utf8'));
+      const headings = [...docBody.matchAll(/^#{1,6} +(.+)$/gm)].map(m => m[1].trim());
+      const sys = 'Ты помогаешь Solution Architect создавать переиспользуемые .md шаблоны архитектурных артефактов.';
+      const userMsg = `Из документа-образца ниже извлеки СТРУКТУРУ и верни переиспользуемый MARKDOWN-ШАБЛОН.
+
+ПРАВИЛА:
+- Только заголовки разделов: # ## ### по иерархии документа.
+- Под каждым заголовком — 1-2 строки курсивом (*...*): что должно быть в этом разделе.
+- НЕ копируй конкретное содержание исходного документа — только структуру и подсказки.
+- Верни ТОЛЬКО markdown шаблона: без markdown-ограждений, без пояснений до/после.
+- Язык — русский.${headings.length ? '\n\nОбнаруженные заголовки документа:\n' + headings.slice(0, 60).map(h => '- ' + h).join('\n') : ''}
+
+Документ-образец:
+${docBody.slice(0, 9000)}`;
+      try {
+        const content = cleanTemplateMd(await genText(engine, sys, userMsg, 3000));
+        if (!content) return json(res, { error: 'модель не вернула шаблон' }, 502);
+        return json(res, { content });
+      } catch (e) { return json(res, { error: e.message }, 502); }
+    }
+
+    // POST /api/template/from-standard — шаблон по ИТ-стандарту
+    if (req.method === 'POST' && url.pathname === '/api/template/from-standard') {
+      const { standard, artifact, engine } = await getBody(req);
+      const std = STANDARDS[standard];
+      if (!std) return json(res, { error: 'неизвестный стандарт' }, 400);
+      if (!artifact) return json(res, { error: 'artifact обязателен' }, 400);
+      const sys = 'Ты эксперт по ИТ-стандартам и методологиям (TOGAF, BABOK, PMBOK, ISO). Ты создаёшь переиспользуемые .md шаблоны артефактов.';
+      const userMsg = `Собери переиспользуемый MARKDOWN-ШАБЛОН артефакта "${artifact}" по стандарту "${std.label}".
+
+ПРАВИЛА:
+- Структура разделов — каноничная для этого артефакта по стандарту.
+- Заголовки: # — название документа, ## — разделы, ### — подразделы.
+- Под каждым заголовком — 1-2 строки курсивом (*...*): что писать в разделе согласно стандарту.
+- Верни ТОЛЬКО markdown шаблона: без markdown-ограждений, без пояснений до/после.
+- Заголовки разделов — по-русски, при необходимости с англоязычным термином в скобках.`;
+      try {
+        const content = cleanTemplateMd(await genText(engine, sys, userMsg, 3000));
+        if (!content) return json(res, { error: 'модель не вернула шаблон' }, 502);
+        return json(res, { content });
+      } catch (e) { return json(res, { error: e.message }, 502); }
     }
 
     if (req.method === 'GET' && url.pathname.startsWith('/api/template/')) {
