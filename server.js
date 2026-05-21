@@ -1272,11 +1272,12 @@ ${context.slice(0, 11000)}`;
       const nameArg = skillName ? ` "${skillName}"` : '';
       const child = exec(
         `echo y | OLLAMA_MODEL="${ENV.OLLAMA_MODEL || 'llama3.1:8b'}" bash "${join(__dirname, 'scripts', 'process_book.sh')}" "${pdfPath}"${nameArg}`,
-        { env: { ...process.env, OLLAMA_MODEL: ENV.OLLAMA_MODEL || 'llama3.1:8b', ANTHROPIC_API_KEY: ENV.ANTHROPIC_API_KEY || '' } }
+        { detached: true, env: { ...process.env, OLLAMA_MODEL: ENV.OLLAMA_MODEL || 'llama3.1:8b', ANTHROPIC_API_KEY: ENV.ANTHROPIC_API_KEY || '' } }
       );
+      activeProcesses.set('skill-create', child);
       child.stdout.on('data', d => res.write(d));
       child.stderr.on('data', d => res.write(d));
-      child.on('close', code => res.end(`\n[exit ${code}]`));
+      child.on('close', code => { activeProcesses.delete('skill-create'); res.end(`\n[exit ${code}]`); });
       return;
     }
 

@@ -918,6 +918,9 @@
           <button class="btn btn-primary" onclick="createSkill()" id="btn-create-skill">
             <span>▶</span> Создать скилл
           </button>
+          <button class="btn btn-danger" onclick="stopSkillCreate()" id="btn-stop-skill" style="display:none">
+            <span>■</span> Стоп
+          </button>
         </div>
         <div class="terminal" id="terminal-skills"></div>
       </div>
@@ -2527,28 +2530,41 @@ async function createSkill() {
   const skillName = document.getElementById('skill-name-input').value.trim();
   if (!pdfPath) return alert('Укажи путь к PDF файлу');
   const btn = document.getElementById('btn-create-skill');
+  const btnStop = document.getElementById('btn-stop-skill');
   const term = document.getElementById('terminal-skills');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Создаю скилл...';
+  if (btnStop) btnStop.style.display = 'inline-flex';
   term.className = 'terminal visible'; term.textContent = '';
 
-  const r = await fetch(API + '/skills/create', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pdfPath, skillName: skillName || undefined })
-  });
-  const reader = r.body.getReader(); const decoder = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    term.textContent += decoder.decode(value);
-    term.scrollTop = term.scrollHeight;
+  try {
+    const r = await fetch(API + '/skills/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pdfPath, skillName: skillName || undefined })
+    });
+    const reader = r.body.getReader(); const decoder = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      term.textContent += decoder.decode(value);
+      term.scrollTop = term.scrollHeight;
+    }
+  } catch (e) {
+    term.textContent += '\n[поток прерван]';
   }
   btn.disabled = false; btn.innerHTML = '<span>▶</span> Создать скилл';
+  if (btnStop) btnStop.style.display = 'none';
   if (term.textContent.includes('[exit 0]')) {
     document.getElementById('skill-pdf-path').value = '';
     document.getElementById('skill-name-input').value = '';
     loadSkillsList();
   }
+}
+
+async function stopSkillCreate() {
+  await fetch(`${API}/stop/skill/create`, { method: 'POST' }).catch(() => {});
+  const btnStop = document.getElementById('btn-stop-skill');
+  if (btnStop) btnStop.style.display = 'none';
 }
 
 async function createSkillFromKnowledge() {

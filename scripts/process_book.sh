@@ -25,7 +25,7 @@ MODEL="${OLLAMA_MODEL:-llama3.1:8b}"
 OLLAMA_URL="http://localhost:11434/api/generate"
 MAX_CHARS=8000       # символов на чанк — как в process.sh
 MAX_CHUNKS=12        # максимум чанков из книги (~96k символов, ~70 страниц)
-TIMEOUT=120          # секунд на запрос — как в process.sh
+# TIMEOUT — рассчитывается из объёма ОЗУ ниже (_auto_timeout)
 TMP_DIR="/tmp/process_book_$$"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -36,6 +36,31 @@ err()  { echo -e "${RED}[error]${NC}  $*" >&2; }
 
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
+
+# --- таймаут запроса к модели: больше при малой ОЗУ (на ней inference медленнее) ---
+_get_ram_gb() {
+  local ram=8
+  case "$(uname -s)" in
+    Linux)  ram=$(awk '/MemTotal/{printf "%d", $2/1024/1024}' /proc/meminfo 2>/dev/null) ;;
+    Darwin) ram=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 8589934592) / 1073741824 )) ;;
+    MINGW*|MSYS*|CYGWIN*)
+      ram=$(powershell.exe -NoProfile -Command \
+        "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB" 2>/dev/null \
+        | tr -d '[:space:]' | cut -d'.' -f1) ;;
+  esac
+  echo "${ram:-8}"
+}
+
+_auto_timeout() {
+  local ram; ram=$(_get_ram_gb)
+  if   (( ram >= 32 )); then echo 150
+  elif (( ram >= 16 )); then echo 300
+  elif (( ram >= 8  )); then echo 480
+  else echo 600; fi
+}
+
+TIMEOUT="${TIMEOUT:-$(_auto_timeout)}"
+info "ОЗУ: $(_get_ram_gb) GB → таймаут запроса к модели: ${TIMEOUT}с"
 
 # --- валидация ---
 if [[ -z "$PDF_PATH" ]]; then
