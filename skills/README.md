@@ -13,5 +13,3 @@
 ## Скиллы
 | Файл | Источник | Домен |
 |------|----------|-------|
-| siem-logging-dbss/SKILL.md | KZ - 999. HL IS SIEM logging fuctionality - Prepaid-v18-20260515_175400 | 2026-05-18 |
-| speechanal-domain/SKILL.md | SpeechAnal knowledge | 2026-05-18 |
