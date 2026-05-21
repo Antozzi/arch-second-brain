@@ -73,17 +73,28 @@ if (process.platform === 'win32') {
 
 function killChild(key) {
   const child = activeProcesses.get(key);
-  if (!child) return false;
+  const pidFile = join(__dirname, 'logs', `.pid-${key}`);
+  let killed = false;
+
   if (process.platform === 'win32') {
-    exec(`taskkill /F /T /PID ${child.pid}`, () => {});
+    if (child) exec(`taskkill /F /T /PID ${child.pid}`, () => {});
+    killed = !!child;
   } else {
-    // убиваем всю группу процессов (sh -c → bash-скрипт → curl/python),
-    // а не только обёртку sh — для этого процесс запущен с detached:true
-    try { process.kill(-child.pid, 'SIGTERM'); }
-    catch { try { child.kill('SIGTERM'); } catch { /* уже мёртв */ } }
+    // PID-файл переживает перезапуск сервера — kill всей группы процессов
+    if (existsSync(pidFile)) {
+      const pid = parseInt(readFileSync(pidFile, 'utf8').trim());
+      if (pid) {
+        try { exec(`kill -9 -${pid} 2>/dev/null; kill -9 ${pid} 2>/dev/null; pkill -KILL -P ${pid} 2>/dev/null`, () => {}); killed = true; } catch {}
+      }
+      try { unlinkSync(pidFile); } catch {}
+    }
+    if (child) {
+      try { process.kill(-child.pid, 'SIGKILL'); killed = true; } catch {}
+      try { child.kill('SIGKILL'); } catch {}
+    }
   }
   activeProcesses.delete(key);
-  return true;
+  return killed;
 }
 
 function cors(res) {
@@ -1256,11 +1267,18 @@ ${context.slice(0, 11000)}`;
       const nameArg = skillName ? ` "${skillName}"` : '';
       const child = exec(
         `echo y | OLLAMA_MODEL="${ENV.OLLAMA_MODEL || 'llama3.1:8b'}" bash "${join(__dirname, 'scripts', 'create_skill_from_knowledge.sh')}" "${jira}"${nameArg}`,
-        { env: { ...process.env, OLLAMA_MODEL: ENV.OLLAMA_MODEL || 'llama3.1:8b' } }
+        { detached: true, env: { ...process.env, OLLAMA_MODEL: ENV.OLLAMA_MODEL || 'llama3.1:8b' } }
       );
+      activeProcesses.set('skill-knowledge', child);
+      mkdirSync(join(__dirname, 'logs'), { recursive: true });
+      writeFileSync(join(__dirname, 'logs', '.pid-skill-knowledge'), String(child.pid));
       child.stdout.on('data', d => res.write(d));
       child.stderr.on('data', d => res.write(d));
-      child.on('close', code => res.end(`\n[exit ${code}]`));
+      child.on('close', code => {
+        activeProcesses.delete('skill-knowledge');
+        try { unlinkSync(join(__dirname, 'logs', '.pid-skill-knowledge')); } catch {}
+        res.end(`\n[exit ${code}]`);
+      });
       return;
     }
 
@@ -1274,11 +1292,24 @@ ${context.slice(0, 11000)}`;
         `echo y | OLLAMA_MODEL="${ENV.OLLAMA_MODEL || 'llama3.1:8b'}" bash "${join(__dirname, 'scripts', 'process_book.sh')}" "${pdfPath}"${nameArg}`,
         { detached: true, env: { ...process.env, OLLAMA_MODEL: ENV.OLLAMA_MODEL || 'llama3.1:8b', ANTHROPIC_API_KEY: ENV.ANTHROPIC_API_KEY || '' } }
       );
-      activeProcesses.set('skill-create', child);
+      activeProcesses.set('skill-book', child);
+      mkdirSync(join(__dirname, 'logs'), { recursive: true });
+      writeFileSync(join(__dirname, 'logs', '.pid-skill-book'), String(child.pid));
       child.stdout.on('data', d => res.write(d));
       child.stderr.on('data', d => res.write(d));
-      child.on('close', code => { activeProcesses.delete('skill-create'); res.end(`\n[exit ${code}]`); });
+      child.on('close', code => {
+        activeProcesses.delete('skill-book');
+        try { unlinkSync(join(__dirname, 'logs', '.pid-skill-book')); } catch {}
+        res.end(`\n[exit ${code}]`);
+      });
       return;
+    }
+
+    // POST /api/skills/stop/:type — остановить создание скилла (book | knowledge)
+    if (req.method === 'POST' && url.pathname.startsWith('/api/skills/stop/')) {
+      const type = url.pathname.split('/').pop();
+      const stopped = killChild(`skill-${type}`);
+      return json(res, { ok: stopped, message: stopped ? 'процесс остановлен' : 'нет активного процесса' });
     }
 
     // GET /api/skill/:jira — check if project skill exists

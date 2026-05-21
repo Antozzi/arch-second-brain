@@ -23,9 +23,7 @@ SKILLS_DIR="$BRAIN_DIR/skills"
 CLAUDE_MD="$BRAIN_DIR/CLAUDE.md"
 MODEL="${OLLAMA_MODEL:-llama3.1:8b}"
 OLLAMA_URL="http://localhost:11434/api/generate"
-MAX_CHARS=8000       # символов на чанк — как в process.sh
-MAX_CHUNKS=12        # максимум чанков из книги (~96k символов, ~70 страниц)
-# TIMEOUT — рассчитывается из объёма ОЗУ ниже (_auto_timeout)
+# MAX_CHARS / MAX_CHUNKS / TIMEOUT — рассчитываются из железа ниже (hw-профиль)
 TMP_DIR="/tmp/process_book_$$"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -37,30 +35,54 @@ err()  { echo -e "${RED}[error]${NC}  $*" >&2; }
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
 
-# --- таймаут запроса к модели: больше при малой ОЗУ (на ней inference медленнее) ---
+# --- авто-конфигурация по железу: мельче чанки и больше времени на слабых машинах ---
 _get_ram_gb() {
-  local ram=8
+  local ram=0
   case "$(uname -s)" in
     Linux)  ram=$(awk '/MemTotal/{printf "%d", $2/1024/1024}' /proc/meminfo 2>/dev/null) ;;
-    Darwin) ram=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 8589934592) / 1073741824 )) ;;
+    Darwin) ram=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 )) ;;
     MINGW*|MSYS*|CYGWIN*)
       ram=$(powershell.exe -NoProfile -Command \
         "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB" 2>/dev/null \
         | tr -d '[:space:]' | cut -d'.' -f1) ;;
   esac
-  echo "${ram:-8}"
+  echo "${ram:-0}"
 }
 
-_auto_timeout() {
-  local ram; ram=$(_get_ram_gb)
-  if   (( ram >= 32 )); then echo 150
-  elif (( ram >= 16 )); then echo 300
-  elif (( ram >= 8  )); then echo 480
-  else echo 600; fi
+_get_cpu_cores() {
+  local cores=0
+  case "$(uname -s)" in
+    Linux)  cores=$(nproc 2>/dev/null) ;;
+    Darwin) cores=$(sysctl -n hw.ncpu 2>/dev/null) ;;
+    MINGW*|MSYS*|CYGWIN*) cores="${NUMBER_OF_PROCESSORS:-0}" ;;
+  esac
+  echo "${cores:-0}"
 }
 
-TIMEOUT="${TIMEOUT:-$(_auto_timeout)}"
-info "ОЗУ: $(_get_ram_gb) GB → таймаут запроса к модели: ${TIMEOUT}с"
+_RAM_GB=$(_get_ram_gb)
+_CPU_CORES=$(_get_cpu_cores)
+# если детект не сработал — берём средний профиль, не калечим машину
+(( _RAM_GB   > 0 )) || _RAM_GB=16
+(( _CPU_CORES > 0 )) || _CPU_CORES=4
+
+if   (( _RAM_GB < 8 )); then
+  MAX_CHARS=1500; MAX_CHUNKS=6;  TIMEOUT=600
+  _HW_PROFILE="economy (RAM < 8 ГБ)"
+elif (( _RAM_GB < 16 && _CPU_CORES < 8 )); then
+  MAX_CHARS=3000; MAX_CHUNKS=10; TIMEOUT=300
+  _HW_PROFILE="standard (RAM 8-16 ГБ, CPU < 8)"
+elif (( _RAM_GB < 16 )); then
+  MAX_CHARS=5000; MAX_CHUNKS=12; TIMEOUT=300
+  _HW_PROFILE="standard+ (RAM 8-16 ГБ, CPU 8+)"
+else
+  MAX_CHARS=8000; MAX_CHUNKS=12; TIMEOUT=300
+  _HW_PROFILE="full (RAM > 16 ГБ)"
+fi
+
+info "Железо: RAM=${_RAM_GB}ГБ CPU=${_CPU_CORES} → профиль: $_HW_PROFILE"
+info "Параметры: MAX_CHARS=$MAX_CHARS MAX_CHUNKS=$MAX_CHUNKS TIMEOUT=${TIMEOUT}с"
+_EST_MINUTES=$(( MAX_CHUNKS * TIMEOUT / 60 ))
+info "Расчётное время: ~${_EST_MINUTES} мин (${MAX_CHUNKS} чанков × до ${TIMEOUT}с)"
 
 # --- валидация ---
 if [[ -z "$PDF_PATH" ]]; then
@@ -164,26 +186,29 @@ text = re.sub(r'[ \t]{3,}', ' ', text)
 
 # Режем по абзацам чтобы не рвать посередине предложения
 paragraphs = text.split('\n\n')
-chunks = []
+raw_chunks = []
 current = ''
 
 for para in paragraphs:
+    while len(para) > max_chars:          # жёстко режем слишком длинный абзац
+        raw_chunks.append(para[:max_chars].strip())
+        para = para[max_chars:]
     if len(current) + len(para) < max_chars:
         current += para + '\n\n'
     else:
         if current.strip():
-            chunks.append(current.strip())
+            raw_chunks.append(current.strip())
         current = para + '\n\n'
-        if len(chunks) >= max_chunks:
-            break
 
-if current.strip() and len(chunks) < max_chunks:
-    chunks.append(current.strip())
+if current.strip():
+    raw_chunks.append(current.strip())
 
-# Равномерно берём из начала, середины и конца книги
-if len(chunks) > max_chunks:
-    step = len(chunks) // max_chunks
-    chunks = [chunks[i * step] for i in range(max_chunks)]
+# Равномерно прореживаем если чанков больше лимита
+if len(raw_chunks) > max_chunks:
+    step = len(raw_chunks) // max_chunks
+    chunks = [raw_chunks[i * step] for i in range(max_chunks)]
+else:
+    chunks = raw_chunks
 
 for i, chunk in enumerate(chunks):
     path = os.path.join(tmp_dir, f'chunk_{i:02d}.txt')
@@ -202,30 +227,14 @@ call_ollama_chunk() {
   local chunk_num="$2"
   local book_name="$3"
 
-  local prompt="Ты извлекаешь структурированную экспертизу из книги/фреймворка для создания AI-скилла.
+  local prompt="Извлеки экспертизу из текста в JSON. Только валидный JSON, без markdown.
 
-Книга: $book_name
-Чанк: $chunk_num
+ТЕКСТ: $chunk_content
 
-ТЕКСТ:
-$chunk_content
+JSON:
+{\"concepts\":[],\"decision_rules\":[],\"playbooks\":[],\"anti_patterns\":[],\"when_to_use_hints\":[]}
 
----
-Извлеки экспертизу в JSON. Верни ТОЛЬКО валидный JSON без markdown, без пояснений.
-
-{
-  \"concepts\": [\"ключевое понятие 1\", \"ключевое понятие 2\"],
-  \"decision_rules\": [\"Если X → делай Y\", \"Когда Z → применяй W\"],
-  \"playbooks\": [\"Шаг 1: ...\", \"Шаг 2: ...\"],
-  \"anti_patterns\": [\"Не делай X потому что Y\"],
-  \"when_to_use_hints\": [\"применимо когда...\", \"триггер для активации скилла...\"]
-}
-
-Правила:
-- Только то что реально есть в тексте
-- Формулировки — операционные, не академические
-- Если раздел пуст — верни []
-- Язык ответа — русский"
+Заполни массивы. Пустой раздел = []. Язык: русский."
 
   curl -s --max-time "$TIMEOUT" -X POST "$OLLAMA_URL" \
     -H "Content-Type: application/json" \
@@ -295,7 +304,7 @@ $all_insights
     -d "$(jq -n \
       --arg model "$MODEL" \
       --arg prompt "$prompt" \
-      '{model: $model, prompt: $prompt, stream: false, options: {temperature: 0.2, num_ctx: 8192}}'
+      '{model: $model, prompt: $prompt, stream: false, options: {temperature: 0.2, num_ctx: 4096}}'
     )" | jq -r '.response // empty'
 }
 
@@ -306,6 +315,8 @@ COUNT_OK=0
 COUNT_ERR=0
 
 echo ""
+echo "[PROGRESS] 0/$CHUNK_COUNT"
+CHUNK_IDX=0
 for chunk_file in "$TMP_DIR"/chunk_*.txt; do
   chunk_num="$(basename "$chunk_file" .txt)"
   chunk_content="$(cat "$chunk_file")"
@@ -314,9 +325,16 @@ for chunk_file in "$TMP_DIR"/chunk_*.txt; do
   info "  Обрабатываю $chunk_num/$CHUNK_COUNT (${chunk_size} символов)..."
 
   response="$(call_ollama_chunk "$chunk_content" "$chunk_num" "$BOOK_NAME")"
+  if [[ -z "$response" ]]; then
+    warn "  Нет ответа — повторяю попытку (2/2)..."
+    response="$(call_ollama_chunk "$chunk_content" "$chunk_num" "$BOOK_NAME")"
+  fi
+
+  ((CHUNK_IDX++))
+  echo "[PROGRESS] $CHUNK_IDX/$CHUNK_COUNT"
 
   if [[ -z "$response" ]]; then
-    warn "  Таймаут или пустой ответ — пропускаю $chunk_num"
+    warn "  Пропускаю $chunk_num после 2 попыток"
     ((COUNT_ERR++))
   else
     # Вырезаем JSON если модель добавила текст
@@ -346,6 +364,10 @@ log "Консолидирую в SKILL.md..."
 
 SKILL_CONTENT="$(call_ollama_consolidate "$ALL_INSIGHTS" "$BOOK_NAME" "$SKILL_NAME")"
 
+if [[ -z "$SKILL_CONTENT" ]]; then
+  warn "Консолидация — повторяю попытку..."
+  SKILL_CONTENT="$(call_ollama_consolidate "$ALL_INSIGHTS" "$BOOK_NAME" "$SKILL_NAME")"
+fi
 if [[ -z "$SKILL_CONTENT" ]]; then
   err "Консолидация не удалась — пустой ответ"
   exit 1

@@ -900,6 +900,9 @@
           <button class="btn btn-primary" onclick="createSkillFromKnowledge()" id="btn-create-skill-knowledge" style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.3);color:var(--cyan)">
             <span>◎</span> Создать из знаний проекта
           </button>
+          <button class="btn btn-danger" onclick="stopSkill('knowledge')" id="btn-stop-skill-knowledge" style="display:none">
+            <span>■</span> Стоп
+          </button>
         </div>
         <div class="terminal" id="terminal-skills-knowledge"></div>
       </div>
@@ -918,9 +921,17 @@
           <button class="btn btn-primary" onclick="createSkill()" id="btn-create-skill">
             <span>▶</span> Создать скилл
           </button>
-          <button class="btn btn-danger" onclick="stopSkillCreate()" id="btn-stop-skill" style="display:none">
+          <button class="btn btn-danger" onclick="stopSkill('book')" id="btn-stop-skill" style="display:none">
             <span>■</span> Стоп
           </button>
+        </div>
+        <div id="skill-progress-wrap" style="display:none;margin:8px 0 4px">
+          <div style="display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text3)">
+            <span id="skill-progress-label" style="white-space:nowrap;min-width:80px">0 / ? чанков</span>
+            <div style="flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+              <div id="skill-progress-bar" style="height:100%;width:0%;background:var(--cyan);border-radius:3px;transition:width 0.4s ease"></div>
+            </div>
+          </div>
         </div>
         <div class="terminal" id="terminal-skills"></div>
       </div>
@@ -2532,15 +2543,90 @@ async function createSkill() {
   const btn = document.getElementById('btn-create-skill');
   const btnStop = document.getElementById('btn-stop-skill');
   const term = document.getElementById('terminal-skills');
+  const progressWrap = document.getElementById('skill-progress-wrap');
+  const progressBar = document.getElementById('skill-progress-bar');
+  const progressLabel = document.getElementById('skill-progress-label');
+
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Создаю скилл...';
   if (btnStop) btnStop.style.display = 'inline-flex';
   term.className = 'terminal visible'; term.textContent = '';
+  progressWrap.style.display = 'none';
+  progressBar.style.width = '0%';
 
   try {
     const r = await fetch(API + '/skills/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pdfPath, skillName: skillName || undefined })
+    });
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let lineBuffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      lineBuffer += decoder.decode(value, { stream: true });
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop();
+      for (const line of lines) {
+        const m = line.match(/\[PROGRESS\]\s*(\d+)\/(\d+)/);
+        if (m) {
+          const cur = parseInt(m[1]), total = parseInt(m[2]);
+          progressWrap.style.display = 'block';
+          progressBar.style.width = total > 0 ? (cur / total * 100) + '%' : '0%';
+          progressLabel.textContent = `${cur} / ${total} чанков`;
+        } else {
+          term.textContent += line + '\n';
+          term.scrollTop = term.scrollHeight;
+        }
+      }
+    }
+    if (lineBuffer) { term.textContent += lineBuffer; term.scrollTop = term.scrollHeight; }
+  } catch (e) {
+    term.textContent += '\n[поток прерван]';
+  }
+
+  btn.disabled = false; btn.innerHTML = '<span>▶</span> Создать скилл';
+  if (btnStop) btnStop.style.display = 'none';
+  progressWrap.style.display = 'none';
+  if (term.textContent.includes('[exit 0]')) {
+    document.getElementById('skill-pdf-path').value = '';
+    document.getElementById('skill-name-input').value = '';
+    loadSkillsList();
+  }
+}
+
+async function stopSkill(type) {
+  await fetch(`${API}/skills/stop/${type}`, { method: 'POST' }).catch(() => {});
+  if (type === 'book') {
+    const btn = document.getElementById('btn-create-skill');
+    const btnStop = document.getElementById('btn-stop-skill');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span>▶</span> Создать скилл'; }
+    if (btnStop) btnStop.style.display = 'none';
+  } else {
+    const btn = document.getElementById('btn-create-skill-knowledge');
+    const btnStop = document.getElementById('btn-stop-skill-knowledge');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span>◎</span> Создать из знаний проекта'; }
+    if (btnStop) btnStop.style.display = 'none';
+  }
+}
+
+async function createSkillFromKnowledge() {
+  const jira = document.getElementById('skill-from-knowledge-jira').value;
+  const skillName = document.getElementById('skill-from-knowledge-name').value.trim();
+  if (!jira) return alert('Выбери проект');
+  const btn = document.getElementById('btn-create-skill-knowledge');
+  const btnStop = document.getElementById('btn-stop-skill-knowledge');
+  const term = document.getElementById('terminal-skills-knowledge');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Генерирую...';
+  if (btnStop) btnStop.style.display = 'inline-flex';
+  term.className = 'terminal visible'; term.textContent = '';
+
+  try {
+    const r = await fetch(API + '/skills/create-from-knowledge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jira, skillName: skillName || undefined })
     });
     const reader = r.body.getReader(); const decoder = new TextDecoder();
     while (true) {
@@ -2552,43 +2638,8 @@ async function createSkill() {
   } catch (e) {
     term.textContent += '\n[поток прерван]';
   }
-  btn.disabled = false; btn.innerHTML = '<span>▶</span> Создать скилл';
-  if (btnStop) btnStop.style.display = 'none';
-  if (term.textContent.includes('[exit 0]')) {
-    document.getElementById('skill-pdf-path').value = '';
-    document.getElementById('skill-name-input').value = '';
-    loadSkillsList();
-  }
-}
-
-async function stopSkillCreate() {
-  await fetch(`${API}/stop/skill/create`, { method: 'POST' }).catch(() => {});
-  const btnStop = document.getElementById('btn-stop-skill');
-  if (btnStop) btnStop.style.display = 'none';
-}
-
-async function createSkillFromKnowledge() {
-  const jira = document.getElementById('skill-from-knowledge-jira').value;
-  const skillName = document.getElementById('skill-from-knowledge-name').value.trim();
-  if (!jira) return alert('Выбери проект');
-  const btn = document.getElementById('btn-create-skill-knowledge');
-  const term = document.getElementById('terminal-skills-knowledge');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Генерирую...';
-  term.className = 'terminal visible'; term.textContent = '';
-
-  const r = await fetch(API + '/skills/create-from-knowledge', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jira, skillName: skillName || undefined })
-  });
-  const reader = r.body.getReader(); const decoder = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    term.textContent += decoder.decode(value);
-    term.scrollTop = term.scrollHeight;
-  }
   btn.disabled = false; btn.innerHTML = '<span>◎</span> Создать из знаний проекта';
+  if (btnStop) btnStop.style.display = 'none';
   if (term.textContent.includes('[exit 0]')) {
     document.getElementById('skill-from-knowledge-name').value = '';
     loadSkillsList();

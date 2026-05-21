@@ -21,7 +21,7 @@ KNOWLEDGE_DIR="$BRAIN_DIR/knowledge"
 CLAUDE_MD="$BRAIN_DIR/CLAUDE.md"
 MODEL="${OLLAMA_MODEL:-llama3.1:8b}"
 OLLAMA_URL="http://localhost:11434/api/generate"
-TIMEOUT=180
+# TIMEOUT — рассчитывается из ОЗУ ниже (_auto_timeout): больше при малой памяти
 
 # --- авто-расчёт MAX_CHARS по модели и ОЗУ ---
 _get_ram_gb() {
@@ -69,7 +69,17 @@ _auto_max_chars() {
   fi
 }
 
+# --- таймаут запроса к модели: больше при малой ОЗУ (inference на ней медленнее) ---
+_auto_timeout() {
+  local ram; ram=$(_get_ram_gb)
+  if   (( ram >= 32 )); then echo 180
+  elif (( ram >= 16 )); then echo 300
+  elif (( ram >= 8  )); then echo 480
+  else echo 600; fi
+}
+
 MAX_CHARS="${MAX_CHARS:-$(_auto_max_chars)}"
+TIMEOUT="${TIMEOUT:-$(_auto_timeout)}"
 NUM_CTX=$(( (MAX_CHARS + 2048 + 511) / 512 * 512 ))
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'
