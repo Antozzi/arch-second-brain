@@ -6,13 +6,25 @@
 
 ## Требования
 
-- macOS с Apple Silicon (M1/M2/M3) — рекомендуется 16GB+ unified memory
-- Homebrew — если нет: `https://brew.sh`
-- GitHub аккаунт — для синхронизации knowledge base
+Second Brain работает на macOS, Windows и Linux. Минимум — 16 GB RAM (локальная LLM требовательна к памяти).
+
+| ОС | Требования |
+|----|-----------|
+| macOS | Apple Silicon (M1/M2/M3), рекомендуется 16 GB+ unified memory |
+| Windows | Windows 10/11 x64, 16 GB+ RAM, [Git for Windows](https://git-scm.com/download/win) — нужен для bash-скриптов |
+| Linux | x64, 16 GB+ RAM |
+
+- **Node.js 18+** — рантайм сервера
+- **Менеджер пакетов** для установки зависимостей: Homebrew (macOS), winget или Chocolatey (Windows), apt/dnf (Linux)
+- **GitHub аккаунт** — *опционально*. Нужен только для версионирования и синхронизации базы знаний между машинами (Шаг 3). Для локальной работы приложение в нём не нуждается.
 
 ---
 
 ## Шаг 1 — Установка зависимостей
+
+Набор инструментов: Node.js, pandoc, tesseract (OCR), imagemagick, ollama, jq, poppler, openjdk (Java — для рендеринга PlantUML), gh (GitHub CLI — только если используешь Шаг 3).
+
+### macOS
 
 ```bash
 # Все CLI инструменты одной командой
@@ -23,6 +35,37 @@ npm install -g @anthropic-ai/claude-code
 
 # Obsidian (UI для базы знаний)
 brew install --cask obsidian
+```
+
+### Windows
+
+```powershell
+# Через winget (Windows 10/11)
+winget install OpenJS.NodeJS JohnMacFarlane.Pandoc UB-Mannheim.TesseractOCR ImageMagick.ImageMagick Ollama.Ollama jqlang.jq GitHub.cli Microsoft.OpenJDK.21 Git.Git Obsidian.Obsidian
+
+# poppler — winget-пакета нет, ставится через Chocolatey:
+choco install poppler
+
+# Claude Code CLI
+npm install -g @anthropic-ai/claude-code
+```
+
+> Если winget не находит пакет по ID — уточни точное имя через `winget search <название>`.
+
+### Linux (Debian / Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install -y nodejs npm pandoc tesseract-ocr imagemagick jq poppler-utils default-jdk
+
+# Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Claude Code CLI
+npm install -g @anthropic-ai/claude-code
+
+# gh (GitHub CLI) — опционально, инструкция: https://cli.github.com
+# Obsidian — через Flatpak (flathub.org) или AppImage с obsidian.md
 ```
 
 Проверка что всё встало:
