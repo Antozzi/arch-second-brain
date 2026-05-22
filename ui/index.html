@@ -545,6 +545,29 @@
         <div class="terminal" id="terminal-ingest"></div>
       </div>
 
+      <!-- Load from Confluence / Jira -->
+      <div class="card" id="card-remote">
+        <div class="card-title">☁ Загрузить из Confluence / Jira</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:12px;line-height:1.6">
+          Вставь ссылку на страницу Confluence (её дочерние страницы подтянутся рекурсивно) или
+          на задачу Jira (с комментариями и связанными задачами). Project Label берётся из поля выше.
+          Серверы и токены настраиваются в разделе <strong>Настройки</strong>.
+        </div>
+        <div class="field">
+          <label>Ссылка на страницу Confluence или задачу Jira</label>
+          <input type="text" id="remote-url" placeholder="https://company.atlassian.net/wiki/spaces/.../pages/123  ·  .../browse/ARCH-123" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="runRemoteIngest()" id="btn-remote">
+            <span>☁</span> Загрузить из Confluence / Jira
+          </button>
+          <button class="btn btn-danger" onclick="stopOperation('ingest-remote')" id="btn-remote-stop" style="display:none">
+            <span>■</span> Стоп
+          </button>
+        </div>
+        <div class="terminal" id="terminal-remote"></div>
+      </div>
+
       <!-- Cyrillic / qwen recommendation -->
       <div class="card" id="card-cyrillic" style="display:none">
         <div class="card-title">⚐ Язык документов проекта</div>
@@ -609,6 +632,15 @@
       <!-- Step 3: Process via model -->
       <div class="card" id="card-process" style="display:none">
         <div class="card-title">③ Обработать через модель</div>
+        <div id="process-skills-block" style="margin-bottom:14px">
+          <div style="font-size:11px;color:var(--text2);margin-bottom:8px;line-height:1.6">
+            Доменные скиллы поверх SA-базы (CLAUDE.md). Отмеченные скиллы добавляются в system-промпт
+            модели при извлечении знаний — выбери релевантные домену проекта.
+          </div>
+          <div id="process-skills-list" style="display:flex;flex-direction:column;gap:6px">
+            <div class="empty" style="font-size:11px">загрузка скиллов...</div>
+          </div>
+        </div>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="runProcess()" id="btn-process">
             <span>▶</span> Запустить обработку
@@ -908,6 +940,31 @@
       </div>
 
       <div class="card">
+        <div class="card-title">☁ Создать скилл из Confluence</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+          Собирает страницу Confluence и её дочерние страницы и извлекает доменный скилл —
+          термины, бизнес-правила, специфику предметной области. Сервер и токен Confluence — в разделе Настройки.
+        </div>
+        <div class="field">
+          <label>Ссылка на страницу Confluence</label>
+          <input type="text" id="skill-confluence-url" placeholder="https://company.atlassian.net/wiki/spaces/.../pages/123" />
+        </div>
+        <div class="field">
+          <label>Имя скилла (опционально — автоматически из заголовка страницы)</label>
+          <input type="text" id="skill-confluence-name" placeholder="billing-domain" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="createSkillFromConfluence()" id="btn-create-skill-confluence" style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.3);color:var(--cyan)">
+            <span>☁</span> Создать скилл из Confluence
+          </button>
+          <button class="btn btn-danger" onclick="stopSkill('confluence')" id="btn-stop-skill-confluence" style="display:none">
+            <span>■</span> Стоп
+          </button>
+        </div>
+        <div class="terminal" id="terminal-skills-confluence"></div>
+      </div>
+
+      <div class="card">
         <div class="card-title">⊕ Создать скилл из PDF книги</div>
         <div class="field">
           <label>Путь к PDF файлу</label>
@@ -1099,6 +1156,86 @@
       </div>
 
       <div class="card">
+        <div class="card-title">☁ Confluence / Jira</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+          Серверы и токены для загрузки проектов по ссылке. Cloud использует email + API-токен,
+          Data Center / Server — Personal Access Token. Токены хранятся локально в <code>.env</code>.
+        </div>
+
+        <div class="field">
+          <label>Тип развёртывания</label>
+          <select id="atl-deployment" onchange="updateAtlassianHints()">
+            <option value="cloud">Atlassian Cloud (*.atlassian.net)</option>
+            <option value="server">Data Center / Server (on-prem)</option>
+          </select>
+        </div>
+
+        <div class="field" id="atl-email-field">
+          <label>Atlassian email (для Cloud)</label>
+          <input type="text" id="atl-email" placeholder="user@company.com" />
+        </div>
+
+        <div class="field">
+          <label>Confluence Base URL</label>
+          <input type="text" id="atl-confluence-url" placeholder="https://company.atlassian.net/wiki" style="font-family:var(--mono)" />
+          <div class="atl-hint-cloud" style="font-size:10px;color:var(--text3);margin-top:4px">Для Cloud укажи адрес с <code>/wiki</code> в конце.</div>
+        </div>
+        <div class="field">
+          <label>Confluence API Token / PAT</label>
+          <input type="password" id="atl-confluence-token" placeholder="оставь пустым чтобы не менять" style="font-family:var(--mono)" />
+          <div id="atl-confluence-token-status" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
+        </div>
+
+        <div class="field">
+          <label>Jira Base URL</label>
+          <input type="text" id="atl-jira-url" placeholder="https://company.atlassian.net" style="font-family:var(--mono)" />
+        </div>
+        <div class="field">
+          <label>Jira API Token / PAT</label>
+          <input type="password" id="atl-jira-token" placeholder="оставь пустым чтобы не менять" style="font-family:var(--mono)" />
+          <div id="atl-jira-token-status" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveAtlassianSettings()">
+            <span>✓</span> Сохранить серверы
+          </button>
+        </div>
+        <div id="atl-result" style="margin-top:12px;font-size:12px;color:var(--green);display:none"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🔒 Деперсонализация</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+          Корпоративные данные (имена сотрудников, названия систем и компонент инфраструктуры)
+          остаются только в локальной базе знаний. При включённой деперсонализации они заменяются
+          обезличенными плейсхолдерами в каждом запросе к облачному Claude API — для безопасной
+          работы с третьими лицами. Локальная модель (Ollama) и raw-материалы облака не касаются.
+        </div>
+
+        <div class="field">
+          <label>Деперсонализация запросов в Claude API</label>
+          <select id="anon-toggle">
+            <option value="off">Выключена</option>
+            <option value="on">Включена — заменять данные по словарю</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Словарь замен — по одному правилу на строку: <code>реальное значение =&gt; плейсхолдер</code></label>
+          <textarea id="anon-glossary" rows="8" placeholder="Иванов Иван =&gt; Сотрудник-1&#10;БиллингТелеком =&gt; Оператор-1&#10;crm-prod-01 =&gt; Система-A" style="width:100%;font-family:var(--mono);font-size:12px;resize:vertical"></textarea>
+          <div style="font-size:10px;color:var(--text3);margin-top:4px">Замена регистронезависимая. Длинные значения применяются раньше коротких.</div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveAnonymizeSettings()">
+            <span>✓</span> Сохранить деперсонализацию
+          </button>
+        </div>
+        <div id="anon-result" style="margin-top:12px;font-size:12px;color:var(--green);display:none"></div>
+      </div>
+
+      <div class="card">
         <div class="card-title">◉ О системе</div>
         <div style="font-size:12px;color:var(--text2);line-height:1.8">
           <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
@@ -1249,7 +1386,34 @@ function selectProject(name) {
   if (cardProcess && name) {
     cardProcess.style.display = 'block';
     document.getElementById('btn-process').setAttribute('data-jira', name);
+    renderProcessSkills();
   }
+}
+
+// Список доменных скиллов с чекбоксами для шага процессинга
+async function renderProcessSkills() {
+  const box = document.getElementById('process-skills-list');
+  if (!box) return;
+  try {
+    const r = await fetch(API + '/skills');
+    const skills = (await r.json()).filter(s => s.name && s.name !== 'knowledge-processor');
+    if (!skills.length) {
+      box.innerHTML = '<div class="empty" style="font-size:11px">Доменных скиллов нет — создай их в разделе ◆ Скиллы</div>';
+      return;
+    }
+    box.innerHTML = skills.map(s => `
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer">
+        <input type="checkbox" class="process-skill-cb" value="${s.name}" />
+        <span style="font-family:var(--mono)">${s.name}</span>
+        ${s.desc ? `<span style="color:var(--text3);font-size:10px">— ${s.desc}</span>` : ''}
+      </label>`).join('');
+  } catch {
+    box.innerHTML = '<div class="empty" style="font-size:11px">не удалось загрузить скиллы</div>';
+  }
+}
+
+function getSelectedProcessSkills() {
+  return Array.from(document.querySelectorAll('.process-skill-cb:checked')).map(cb => cb.value);
 }
 
 // === REPLACE FILE ===
@@ -1360,6 +1524,41 @@ async function runIngest() {
   checkCyrillic(jira);
 }
 
+// === REMOTE INGEST: Confluence / Jira ===
+async function runRemoteIngest() {
+  const jira = document.getElementById('ingest-jira').value.trim();
+  const url = document.getElementById('remote-url').value.trim();
+  if (!jira) return alert('Укажи Project Label в поле выше');
+  if (!url) return alert('Вставь ссылку на страницу Confluence или задачу Jira');
+  const btn = document.getElementById('btn-remote');
+  const btnStop = document.getElementById('btn-remote-stop');
+  const term = document.getElementById('terminal-remote');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Загружаю...';
+  if (btnStop) btnStop.style.display = 'inline-flex';
+  term.className = 'terminal visible'; term.textContent = '';
+
+  try {
+    const r = await fetch(`${API}/ingest-remote`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({jira, url})
+    });
+    const reader = r.body.getReader(); const decoder = new TextDecoder();
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      term.textContent += colorize(decoder.decode(value));
+      term.scrollTop = term.scrollHeight;
+    }
+  } catch(e) {
+    term.textContent += '\n[error] ' + e.message;
+  }
+  btn.disabled = false; btn.innerHTML = '<span>☁</span> Загрузить из Confluence / Jira';
+  if (btnStop) btnStop.style.display = 'none';
+  selectProject(jira);
+  await loadProjects(); renderProjectsList(); renderOverview();
+  checkCyrillic(jira);
+}
+
 // === CYRILLIC / QWEN ===
 async function checkCyrillic(jira) {
   const card = document.getElementById('card-cyrillic');
@@ -1450,7 +1649,9 @@ async function runProcess() {
   var startTime = Date.now();
   var current = 0; var total = 0;
 
-  const r = await fetch(`${API}/process`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira}) });
+  const selectedSkills = getSelectedProcessSkills();
+  if (selectedSkills.length && term) term.textContent += '[ui] доменные скиллы: ' + selectedSkills.join(', ') + '\n';
+  const r = await fetch(`${API}/process`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jira, skills: selectedSkills}) });
   const reader = r.body.getReader(); const decoder = new TextDecoder();
   while (true) {
     const {value, done} = await reader.read();
@@ -2421,6 +2622,93 @@ async function loadSettings() {
       if (mcHint) mcHint.textContent = `авто: ${data.maxCharsAuto.toLocaleString()} (ОЗУ ${data.ramGB}ГБ, ${data.ollamaModel})`;
     }
   }
+
+  // Confluence / Jira
+  const atl = data.atlassian || {};
+  const setVal = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
+  setVal('atl-deployment', atl.deployment || 'cloud');
+  setVal('atl-email', atl.email);
+  setVal('atl-confluence-url', atl.confluenceUrl);
+  setVal('atl-jira-url', atl.jiraUrl);
+  const ct = document.getElementById('atl-confluence-token-status');
+  if (ct) { ct.textContent = atl.hasConfluenceToken ? '✓ токен сохранён' : 'токен не задан';
+    ct.style.color = atl.hasConfluenceToken ? 'var(--green)' : 'var(--amber)'; }
+  const jt = document.getElementById('atl-jira-token-status');
+  if (jt) { jt.textContent = atl.hasJiraToken ? '✓ токен сохранён' : 'токен не задан';
+    jt.style.color = atl.hasJiraToken ? 'var(--green)' : 'var(--amber)'; }
+  updateAtlassianHints();
+
+  // Деперсонализация
+  const at = document.getElementById('anon-toggle');
+  if (at) at.value = data.anonymize === 'on' ? 'on' : 'off';
+  const gr = await fetch(API + '/anonymize-glossary').catch(() => null);
+  const ta = document.getElementById('anon-glossary');
+  if (gr && ta) {
+    const rules = await gr.json().catch(() => []);
+    ta.value = (rules || []).map(r => `${r.from} => ${r.to}`).join('\n');
+  }
+}
+
+function updateAtlassianHints() {
+  const dep = (document.getElementById('atl-deployment') || {}).value || 'cloud';
+  const emailField = document.getElementById('atl-email-field');
+  if (emailField) emailField.style.display = dep === 'cloud' ? 'block' : 'none';
+  document.querySelectorAll('.atl-hint-cloud').forEach(e => {
+    e.style.display = dep === 'cloud' ? 'block' : 'none';
+  });
+}
+
+async function saveAtlassianSettings() {
+  const body = {
+    ATLASSIAN_DEPLOYMENT: document.getElementById('atl-deployment').value,
+    ATLASSIAN_EMAIL: document.getElementById('atl-email').value.trim(),
+    CONFLUENCE_BASE_URL: document.getElementById('atl-confluence-url').value.trim(),
+    JIRA_BASE_URL: document.getElementById('atl-jira-url').value.trim()
+  };
+  const ct = document.getElementById('atl-confluence-token').value.trim();
+  const jt = document.getElementById('atl-jira-token').value.trim();
+  if (ct) body.CONFLUENCE_API_TOKEN = ct;
+  if (jt) body.JIRA_API_TOKEN = jt;
+  const r = await fetch(API + '/settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  });
+  const data = await r.json();
+  const el = document.getElementById('atl-result');
+  if (data.ok && el) {
+    document.getElementById('atl-confluence-token').value = '';
+    document.getElementById('atl-jira-token').value = '';
+    el.style.display = 'block';
+    el.textContent = '✓ Серверы Confluence / Jira сохранены.';
+    loadSettings();
+  }
+}
+
+async function saveAnonymizeSettings() {
+  const toggle = document.getElementById('anon-toggle').value;
+  const raw = document.getElementById('anon-glossary').value;
+  const rules = raw.split('\n').map(line => {
+    const m = line.split('=>');
+    if (m.length < 2 || !m[0].trim()) return null;
+    return { from: m[0].trim(), to: m.slice(1).join('=>').trim() || '***' };
+  }).filter(Boolean);
+
+  await fetch(API + '/settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ANONYMIZE: toggle })
+  });
+  const r = await fetch(API + '/anonymize-glossary', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ rules })
+  });
+  const data = await r.json();
+  const el = document.getElementById('anon-result');
+  if (data.ok && el) {
+    el.style.display = 'block';
+    el.style.color = toggle === 'on' ? 'var(--green)' : 'var(--amber)';
+    el.textContent = toggle === 'on'
+      ? `✓ Деперсонализация включена · правил в словаре: ${data.count}`
+      : `Сохранено · деперсонализация выключена · правил в словаре: ${data.count}`;
+  }
 }
 
 async function saveSettings() {
@@ -2598,16 +2886,50 @@ async function createSkill() {
 
 async function stopSkill(type) {
   await fetch(`${API}/skills/stop/${type}`, { method: 'POST' }).catch(() => {});
-  if (type === 'book') {
-    const btn = document.getElementById('btn-create-skill');
-    const btnStop = document.getElementById('btn-stop-skill');
-    if (btn) { btn.disabled = false; btn.innerHTML = '<span>▶</span> Создать скилл'; }
-    if (btnStop) btnStop.style.display = 'none';
-  } else {
-    const btn = document.getElementById('btn-create-skill-knowledge');
-    const btnStop = document.getElementById('btn-stop-skill-knowledge');
-    if (btn) { btn.disabled = false; btn.innerHTML = '<span>◎</span> Создать из знаний проекта'; }
-    if (btnStop) btnStop.style.display = 'none';
+  const map = {
+    book: ['btn-create-skill', 'btn-stop-skill', '<span>▶</span> Создать скилл'],
+    knowledge: ['btn-create-skill-knowledge', 'btn-stop-skill-knowledge', '<span>◎</span> Создать из знаний проекта'],
+    confluence: ['btn-create-skill-confluence', 'btn-stop-skill-confluence', '<span>☁</span> Создать скилл из Confluence']
+  };
+  const m = map[type] || map.knowledge;
+  const btn = document.getElementById(m[0]);
+  const btnStop = document.getElementById(m[1]);
+  if (btn) { btn.disabled = false; btn.innerHTML = m[2]; }
+  if (btnStop) btnStop.style.display = 'none';
+}
+
+async function createSkillFromConfluence() {
+  const url = document.getElementById('skill-confluence-url').value.trim();
+  const skillName = document.getElementById('skill-confluence-name').value.trim();
+  if (!url) return alert('Вставь ссылку на страницу Confluence');
+  const btn = document.getElementById('btn-create-skill-confluence');
+  const btnStop = document.getElementById('btn-stop-skill-confluence');
+  const term = document.getElementById('terminal-skills-confluence');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Собираю и генерирую...';
+  if (btnStop) btnStop.style.display = 'inline-flex';
+  term.className = 'terminal visible'; term.textContent = '';
+
+  try {
+    const r = await fetch(API + '/skills/create-from-confluence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, skillName: skillName || undefined })
+    });
+    const reader = r.body.getReader(); const decoder = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      term.textContent += colorize(decoder.decode(value));
+      term.scrollTop = term.scrollHeight;
+    }
+  } catch (e) {
+    term.textContent += '\n[поток прерван]';
+  }
+  btn.disabled = false; btn.innerHTML = '<span>☁</span> Создать скилл из Confluence';
+  if (btnStop) btnStop.style.display = 'none';
+  if (term.textContent.includes('Скилл создан')) {
+    document.getElementById('skill-confluence-name').value = '';
+    loadSkillsList();
   }
 }
 

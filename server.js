@@ -116,6 +116,283 @@ function getBody(req) {
   });
 }
 
+// === Деперсонализация: глоссарий замен корпоративных данных ===
+function glossaryPath() { return join(__dirname, 'config', 'anonymize.json'); }
+
+function loadGlossary() {
+  try {
+    const arr = JSON.parse(readFileSync(glossaryPath(), 'utf8'));
+    return Array.isArray(arr) ? arr.filter(r => r && r.from) : [];
+  } catch { return []; }
+}
+
+function saveGlossary(rules) {
+  mkdirSync(join(__dirname, 'config'), { recursive: true });
+  const clean = (Array.isArray(rules) ? rules : [])
+    .filter(r => r && typeof r.from === 'string' && r.from.trim())
+    .map(r => ({ from: r.from.trim(), to: (r.to || '***').trim() }));
+  writeFileSync(glossaryPath(), JSON.stringify(clean, null, 2));
+  return clean;
+}
+
+// Применяет глоссарий: реальные корпоративные данные → обезличенные плейсхолдеры.
+function anonymizeText(text) {
+  if (!text) return text;
+  const rules = loadGlossary().sort((a, b) => b.from.length - a.from.length);
+  let out = String(text);
+  for (const r of rules) {
+    const esc = r.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(esc, 'gi'), r.to || '***');
+  }
+  return out;
+}
+
+// === Confluence / Jira: загрузка контента по ссылке ===
+const remoteCancels = new Set(); // jira-метки с запрошенной остановкой удалённой загрузки
+
+function atlassianHeaders(which) {
+  const deployment = (ENV.ATLASSIAN_DEPLOYMENT || 'cloud').toLowerCase();
+  const token = which === 'jira' ? ENV.JIRA_API_TOKEN : ENV.CONFLUENCE_API_TOKEN;
+  if (!token) return null;
+  const h = { 'Accept': 'application/json' };
+  if (deployment === 'server') {
+    h['Authorization'] = 'Bearer ' + token;
+  } else {
+    if (!ENV.ATLASSIAN_EMAIL) return null;
+    h['Authorization'] = 'Basic ' + Buffer.from(ENV.ATLASSIAN_EMAIL + ':' + token).toString('base64');
+  }
+  return h;
+}
+
+function execP(cmd) {
+  return new Promise(resolve => {
+    exec(cmd, { maxBuffer: 1024 * 1024 * 64 }, (err, stdout) => resolve({ err, stdout }));
+  });
+}
+
+// HTML (Confluence storage/view, Jira renderedFields) → markdown через pandoc
+async function htmlToMd(html) {
+  if (!html || !String(html).trim()) return '';
+  const stamp = Date.now() + '-' + Math.random().toString(36).slice(2);
+  const tmpH = join(__dirname, 'logs', `_tmp-${stamp}.html`);
+  const tmpM = join(__dirname, 'logs', `_tmp-${stamp}.md`);
+  let md = '';
+  try {
+    writeFileSync(tmpH, String(html));
+    await execP(`pandoc "${tmpH}" -f html -t markdown --wrap=none -o "${tmpM}"`);
+    md = existsSync(tmpM) ? readFileSync(tmpM, 'utf8') : '';
+  } catch {}
+  try { if (existsSync(tmpH)) unlinkSync(tmpH); } catch {}
+  try { if (existsSync(tmpM)) unlinkSync(tmpM); } catch {}
+  return md.trim();
+}
+
+// Безопасное имя raw-файла: дата + slug заголовка (кириллица сохраняется)
+function rawFileName(title) {
+  const today = new Date().toISOString().slice(0, 10);
+  const slug = String(title || 'doc').toLowerCase()
+    .replace(/[^a-zа-яё0-9._-]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return `${today}-${slug || 'doc'}`;
+}
+
+// Пишет markdown в raw/<jira>/ с YAML-frontmatter (как ingest.sh)
+function writeRawDoc(jira, baseName, type, source, content) {
+  const dir = join(__dirname, 'raw', jira);
+  mkdirSync(dir, { recursive: true });
+  const today = new Date().toISOString().slice(0, 10);
+  const fm = `---\nsource: "${source}"\njira: "${jira}"\ndate: "${today}"\nprocessed: false\ntype: "${type}"\n---\n\n`;
+  const file = baseName + '.md';
+  writeFileSync(join(dir, file), fm + (content || ''));
+  return file;
+}
+
+async function confluenceGet(path) {
+  const headers = atlassianHeaders('confluence');
+  if (!headers) throw new Error('Confluence не настроен — укажи URL, токен (и email для Cloud) в Настройках');
+  const base = (ENV.CONFLUENCE_BASE_URL || '').replace(/\/+$/, '');
+  if (!base) throw new Error('CONFLUENCE_BASE_URL не задан в Настройках');
+  const r = await fetch(base + path, { headers, signal: AbortSignal.timeout(30000) });
+  if (!r.ok) throw new Error(`Confluence API ${r.status} (${path})`);
+  return r.json();
+}
+
+async function jiraGet(path) {
+  const headers = atlassianHeaders('jira');
+  if (!headers) throw new Error('Jira не настроена — укажи URL, токен (и email для Cloud) в Настройках');
+  const base = (ENV.JIRA_BASE_URL || '').replace(/\/+$/, '');
+  if (!base) throw new Error('JIRA_BASE_URL не задан в Настройках');
+  const r = await fetch(base + path, { headers, signal: AbortSignal.timeout(30000) });
+  if (!r.ok) throw new Error(`Jira API ${r.status} (${path})`);
+  return r.json();
+}
+
+async function resolveConfluencePageId(srcUrl) {
+  let m = srcUrl.match(/\/pages\/(\d+)/) || srcUrl.match(/pageId=(\d+)/);
+  if (m) return m[1];
+  m = srcUrl.match(/\/display\/([^/]+)\/([^/?#]+)/);
+  if (m) {
+    const space = decodeURIComponent(m[1]);
+    const title = decodeURIComponent(m[2].replace(/\+/g, ' '));
+    const data = await confluenceGet(
+      `/rest/api/content?spaceKey=${encodeURIComponent(space)}&title=${encodeURIComponent(title)}&limit=1`);
+    if (data.results && data.results[0]) return data.results[0].id;
+  }
+  throw new Error('Не удалось извлечь ID страницы из ссылки Confluence');
+}
+
+// Рекурсивный обход страницы Confluence + дочерних; onPage({id,title,md,depth}) на каждую.
+async function crawlConfluencePage(id, depth, cancelKey, onPage) {
+  if (cancelKey && remoteCancels.has(cancelKey)) throw new Error('остановлено пользователем');
+  const data = await confluenceGet(`/rest/api/content/${id}?expand=body.view`);
+  const title = data.title || ('page-' + id);
+  const md = await htmlToMd(data.body && data.body.view ? data.body.view.value : '');
+  await onPage({ id, title, md, depth });
+  let start = 0;
+  while (true) {
+    if (cancelKey && remoteCancels.has(cancelKey)) throw new Error('остановлено пользователем');
+    const ch = await confluenceGet(`/rest/api/content/${id}/child/page?limit=50&start=${start}`);
+    const results = ch.results || [];
+    for (const c of results) await crawlConfluencePage(c.id, depth + 1, cancelKey, onPage);
+    if (results.length < 50) break;
+    start += 50;
+  }
+}
+
+async function crawlConfluence(srcUrl, cancelKey, onPage) {
+  const id = await resolveConfluencePageId(srcUrl);
+  await crawlConfluencePage(id, 0, cancelKey, onPage);
+}
+
+async function ingestConfluence(jira, srcUrl, log) {
+  log('[confluence] Определяю страницу...');
+  const base = (ENV.CONFLUENCE_BASE_URL || '').replace(/\/+$/, '');
+  await crawlConfluence(srcUrl, jira, async ({ id, title, md, depth }) => {
+    const file = writeRawDoc(jira, rawFileName(title) + '-' + id, 'confluence',
+      base + '/pages/' + id, `# ${title}\n\n${md}`);
+    log(`[ok] ${'  '.repeat(depth)}Confluence: ${title} → ${file}`);
+  });
+  log('[confluence] Готово.');
+}
+
+// Генерация доменного SKILL.md из произвольного текста через локальную Ollama.
+async function buildSkillFromText(skillName, sourceLabel, text, log) {
+  const ctx = String(text || '').slice(0, 12000);
+  if (!ctx.trim()) throw new Error('пустой контент для скилла');
+  const today = new Date().toISOString().slice(0, 10);
+  const prompt = `Ты извлекаешь доменную экспертизу из документов Confluence для создания AI-скилла.
+
+Источник: ${sourceLabel}
+
+КОНТЕНТ:
+${ctx}
+
+---
+Твоя задача — извлечь ПРЕДМЕТНУЮ ЭКСПЕРТИЗУ (domain knowledge), не архитектурные паттерны.
+Фокус: что это за система/технология/домен, как работает, какие правила предметной области.
+Создай SKILL.md. Верни ТОЛЬКО markdown без пояснений.
+
+# SKILL: ${skillName}
+
+## DESCRIPTION
+Одно предложение — суть предметной области.
+
+## WHEN_TO_USE
+- [когда этот скилл нужен при заполнении документов]
+- [триггеры: упоминание конкретных систем, технологий, терминов]
+
+## DOMAIN_CONTEXT
+Краткое описание предметной области: что за системы, для чего, кто использует.
+
+## CORE_CONCEPTS
+- **[Термин/система]**: [определение в 1 строку из контента]
+
+## BUSINESS_RULES
+- [Правило предметной области из контента]
+
+## DECISION_RULES
+- Если [ситуация в этом домене] → [как поступать]
+
+## INTEGRATION_POINTS
+- [Система A] ↔ [Система B]: [суть взаимодействия]
+
+## ANTI_PATTERNS
+- ❌ [Типичная ошибка]: [почему неправильно]
+
+## SOURCE
+- Источник: ${sourceLabel}
+- Создан: ${today}
+
+Правила:
+- Только факты из контента, без домыслов
+- Термины на языке оригинала
+- Если раздел пуст — не включай его
+- Язык — русский`;
+
+  log('[skill] Генерирую SKILL.md через Ollama...');
+  const r = await fetch('http://localhost:11434/api/generate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: ENV.OLLAMA_MODEL || 'llama3.1:8b',
+      prompt, stream: false, options: { temperature: 0.1, num_ctx: 8192 }
+    }),
+    signal: AbortSignal.timeout(240000)
+  });
+  const data = await r.json();
+  const content = (data.response || '').trim();
+  if (!content) throw new Error('пустой ответ от Ollama (таймаут?)');
+  const dir = join(__dirname, 'skills', skillName);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), content);
+  const readme = join(__dirname, 'skills', 'README.md');
+  if (existsSync(readme)) {
+    writeFileSync(readme, readFileSync(readme, 'utf8').replace(/\s*$/, '') +
+      `\n| ${skillName}/SKILL.md | Confluence: ${sourceLabel} | ${today} |\n`);
+  }
+  return content;
+}
+
+async function fetchJiraIssue(key, withComments) {
+  const fields = 'summary,description,issuetype,status,comment,issuelinks,subtasks';
+  const data = await jiraGet(`/rest/api/2/issue/${encodeURIComponent(key)}?expand=renderedFields&fields=${fields}`);
+  const f = data.fields || {}, rf = data.renderedFields || {};
+  let md = `# ${key}: ${f.summary || ''}\n\n`;
+  md += `**Тип:** ${(f.issuetype && f.issuetype.name) || '—'}  •  **Статус:** ${(f.status && f.status.name) || '—'}\n\n`;
+  md += `## Описание\n\n${await htmlToMd(rf.description) || '_нет описания_'}\n`;
+  if (withComments && rf.comment && rf.comment.comments && rf.comment.comments.length) {
+    md += `\n## Комментарии\n\n`;
+    for (const c of rf.comment.comments) {
+      const author = (c.author && c.author.displayName) || 'автор';
+      md += `### ${author} — ${c.created || ''}\n\n${await htmlToMd(c.body)}\n\n`;
+    }
+  }
+  return { f, md };
+}
+
+async function ingestJira(jira, key, log) {
+  log('[jira] Загружаю задачу ' + key + '...');
+  const main = await fetchJiraIssue(key, true);
+  const base = (ENV.JIRA_BASE_URL || '').replace(/\/+$/, '');
+  const file = writeRawDoc(jira, rawFileName(key), 'jira', base + '/browse/' + key, main.md);
+  log(`[ok] Jira: ${key} → ${file}`);
+
+  const related = new Set();
+  for (const l of (main.f.issuelinks || [])) {
+    const k = (l.inwardIssue && l.inwardIssue.key) || (l.outwardIssue && l.outwardIssue.key);
+    if (k) related.add(k);
+  }
+  for (const s of (main.f.subtasks || [])) if (s.key) related.add(s.key);
+
+  for (const rk of related) {
+    if (remoteCancels.has(jira)) throw new Error('остановлено пользователем');
+    try {
+      const rel = await fetchJiraIssue(rk, false);
+      const rfile = writeRawDoc(jira, rawFileName(rk), 'jira', base + '/browse/' + rk, rel.md);
+      log(`[ok]   связанная: ${rk} → ${rfile}`);
+    } catch (e) { log(`[warn]   ${rk}: ${e.message}`); }
+  }
+  log('[jira] Готово.');
+}
+
 function getProjects() {
   const dir = join(__dirname, 'knowledge', 'projects');
   if (!existsSync(dir)) return [];
@@ -590,14 +867,42 @@ ${docBody.slice(0, 9000)}`;
       return;
     }
 
+    // POST /api/ingest-remote — загрузка контента из Confluence / Jira по ссылке
+    if (req.method === 'POST' && url.pathname === '/api/ingest-remote') {
+      const { jira, url: srcUrl } = await getBody(req);
+      if (!jira || !srcUrl) return json(res, { error: 'jira и url обязательны' }, 400);
+      cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
+      remoteCancels.delete(jira);
+      const log = (s) => { try { res.write(s + '\n'); } catch {} };
+      const isConfluence = /\/wiki\/|\/display\/|\/pages\/|\/spaces\/|pageId=/.test(srcUrl);
+      const issueKey = (srcUrl.match(/([A-Z][A-Z0-9]+-\d+)/) || [])[1];
+      try {
+        if (isConfluence) {
+          await ingestConfluence(jira, srcUrl, log);
+        } else if (issueKey) {
+          await ingestJira(jira, issueKey, log);
+        } else {
+          log('[error] Не удалось определить тип ссылки — ожидается страница Confluence или задача Jira');
+        }
+      } catch (e) {
+        log('[error] ' + e.message);
+      }
+      remoteCancels.delete(jira);
+      res.end('\n[exit 0]');
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/process') {
-      const { jira } = await getBody(req);
+      const { jira, skills } = await getBody(req);
       if (!jira) return json(res, { error: 'jira обязателен' }, 400);
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
       const _ollamaModel = ENV.OLLAMA_MODEL || 'llama3.1:8b';
       const _maxChars = String(ENV.MAX_CHARS || computeAutoMaxChars(_ollamaModel));
+      const _domainSkills = Array.isArray(skills)
+        ? skills.filter(s => typeof s === 'string' && /^[a-zA-Z0-9._-]+$/.test(s)).join(',')
+        : '';
       const child = exec(`bash "${join(__dirname, 'scripts', 'process.sh')}" "${jira}"`,
-        { detached: true, env: { ...process.env, OLLAMA_MODEL: _ollamaModel, MAX_CHARS: _maxChars } });
+        { detached: true, env: { ...process.env, OLLAMA_MODEL: _ollamaModel, MAX_CHARS: _maxChars, DOMAIN_SKILLS: _domainSkills } });
       const processKey = `process-${jira}`;
       activeProcesses.set(processKey, child);
       child.stdout.on('data', d => res.write(d));
@@ -611,6 +916,10 @@ ${docBody.slice(0, 9000)}`;
       const parts = url.pathname.split('/').filter(Boolean);
       const type = parts[2]; const jira = parts[3];
       if (!type || !jira) return json(res, { error: 'type и jira обязательны' }, 400);
+      if (type === 'ingest-remote') {
+        remoteCancels.add(jira);
+        return json(res, { ok: true, message: 'загрузка будет остановлена' });
+      }
       const stopped = killChild(`${type}-${jira}`);
       return json(res, { ok: stopped, message: stopped ? 'процесс остановлен' : 'нет активного процесса' });
     }
@@ -1140,8 +1449,29 @@ ${context.slice(0, 11000)}`;
         maxChars: manualMaxChars || autoMaxChars,
         maxCharsAuto: autoMaxChars,
         maxCharsIsManual: !!manualMaxChars,
-        ramGB: Math.floor(totalmem() / (1024 ** 3))
+        ramGB: Math.floor(totalmem() / (1024 ** 3)),
+        atlassian: {
+          deployment: ENV.ATLASSIAN_DEPLOYMENT || 'cloud',
+          email: ENV.ATLASSIAN_EMAIL || '',
+          confluenceUrl: ENV.CONFLUENCE_BASE_URL || '',
+          jiraUrl: ENV.JIRA_BASE_URL || '',
+          hasConfluenceToken: !!ENV.CONFLUENCE_API_TOKEN,
+          hasJiraToken: !!ENV.JIRA_API_TOKEN
+        },
+        anonymize: (ENV.ANONYMIZE || 'off').toLowerCase()
       });
+    }
+
+    // GET /api/anonymize-glossary — словарь замен для деперсонализации
+    if (req.method === 'GET' && url.pathname === '/api/anonymize-glossary') {
+      return json(res, loadGlossary());
+    }
+
+    // POST /api/anonymize-glossary  { rules: [{from,to}] }
+    if (req.method === 'POST' && url.pathname === '/api/anonymize-glossary') {
+      const { rules } = await getBody(req);
+      const saved = saveGlossary(rules);
+      return json(res, { ok: true, count: saved.length });
     }
 
     // POST /api/settings  { ANTHROPIC_API_KEY, OLLAMA_MODEL, CLAUDE_MODEL, MAX_CHARS }
@@ -1149,7 +1479,9 @@ ${context.slice(0, 11000)}`;
       const body = await getBody(req);
       const envPath = join(__dirname, '.env');
       let lines = existsSync(envPath) ? readFileSync(envPath, 'utf8').split('\n').filter(Boolean) : [];
-      const allowed = ['ANTHROPIC_API_KEY', 'CLAUDE_MODEL', 'OLLAMA_MODEL', 'MAX_CHARS'];
+      const allowed = ['ANTHROPIC_API_KEY', 'CLAUDE_MODEL', 'OLLAMA_MODEL', 'MAX_CHARS',
+        'ATLASSIAN_DEPLOYMENT', 'ATLASSIAN_EMAIL', 'CONFLUENCE_BASE_URL', 'CONFLUENCE_API_TOKEN',
+        'JIRA_BASE_URL', 'JIRA_API_TOKEN', 'ANONYMIZE'];
       Object.entries(body).forEach(([k, v]) => {
         if (!allowed.includes(k)) return;
         if (k === 'MAX_CHARS' && v === '') {
@@ -1173,11 +1505,16 @@ ${context.slice(0, 11000)}`;
 
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
 
+      // Деперсонализация: корпоративные данные не уходят в облако, если включена опция
+      const anonOn = (ENV.ANONYMIZE || 'off').toLowerCase() === 'on';
+      const outSystem = anonOn ? anonymizeText(system) : system;
+      const outPrompt = anonOn ? anonymizeText(userPrompt) : userPrompt;
+
       const payload = JSON.stringify({
         model: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6',
         max_tokens: max_tokens || 8000,
-        system: system || 'Ты Solution Architect. Отвечай по-русски.',
-        messages: [{ role: 'user', content: userPrompt }]
+        system: outSystem || 'Ты Solution Architect. Отвечай по-русски.',
+        messages: [{ role: 'user', content: outPrompt }]
       });
 
       try {
@@ -1305,9 +1642,47 @@ ${context.slice(0, 11000)}`;
       return;
     }
 
-    // POST /api/skills/stop/:type — остановить создание скилла (book | knowledge)
+    // POST /api/skills/create-from-confluence — доменный скилл из страниц Confluence
+    if (req.method === 'POST' && url.pathname === '/api/skills/create-from-confluence') {
+      const { url: srcUrl, skillName } = await getBody(req);
+      if (!srcUrl) return json(res, { error: 'url обязателен' }, 400);
+      cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
+      const log = (s) => { try { res.write(s + '\n'); } catch {} };
+      const cancelKey = 'skill-confluence';
+      remoteCancels.delete(cancelKey);
+      try {
+        log('[confluence] Определяю страницу...');
+        let collected = '', firstTitle = '', pages = 0;
+        await crawlConfluence(srcUrl, cancelKey, async ({ title, md, depth }) => {
+          if (!firstTitle) firstTitle = title;
+          collected += `\n\n### ${title}\n${md}`;
+          pages++;
+          log(`[ok] ${'  '.repeat(depth)}собрана страница: ${title}`);
+        });
+        log(`[confluence] Собрано страниц: ${pages}`);
+        let name = String(skillName || '').trim().toLowerCase()
+          .replace(/[^a-zа-яё0-9]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        if (!name) {
+          name = (firstTitle.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '-')
+            .replace(/-+/g, '-').replace(/^-|-$/g, '') || 'confluence') + '-domain';
+        }
+        await buildSkillFromText(name, srcUrl, collected, log);
+        log(`[ok] Скилл создан: skills/${name}/SKILL.md`);
+      } catch (e) {
+        log('[error] ' + e.message);
+      }
+      remoteCancels.delete(cancelKey);
+      res.end('\n[exit 0]');
+      return;
+    }
+
+    // POST /api/skills/stop/:type — остановить создание скилла (book | knowledge | confluence)
     if (req.method === 'POST' && url.pathname.startsWith('/api/skills/stop/')) {
       const type = url.pathname.split('/').pop();
+      if (type === 'confluence') {
+        remoteCancels.add('skill-confluence');
+        return json(res, { ok: true, message: 'создание скилла будет остановлено' });
+      }
       const stopped = killChild(`skill-${type}`);
       return json(res, { ok: stopped, message: stopped ? 'процесс остановлен' : 'нет активного процесса' });
     }

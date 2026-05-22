@@ -124,14 +124,39 @@ curl -s --max-time 5 "$OLLAMA_URL" > /dev/null 2>&1 || { err "Ollama не зап
 
 mkdir -p "$KNOWLEDGE_JIRA"
 
+# --- system prompt: композиция слоёв ---
+# 1) SA-база — CLAUDE.md (встроенный скилл knowledge-processor, JSON-схема извлечения) — всегда
+# 2) скилл проекта <JIRA>-SKILL.md — если есть
+# 3) доменные скиллы из skills/ — выбор пользователя через env DOMAIN_SKILLS (через запятую)
+SYSTEM_PROMPT="$(tr -d '\r' < "$CLAUDE_MD")"
+info "SA-база: CLAUDE.md (knowledge-processor)"
+
 SKILL_FILE="$KNOWLEDGE_JIRA/${JIRA}-SKILL.md"
 if [[ -f "$SKILL_FILE" ]]; then
-  SYSTEM_PROMPT="$(tr -d '\r' < "$SKILL_FILE" | sed 's/^```[a-z]*$//' | sed '/^```$/d' | sed '/^[[:space:]]*$/d')"
-  SKILL_ACTIVE="true"
-  info "Используется скилл проекта: ${JIRA}-SKILL.md"
-else
-  SYSTEM_PROMPT="Ты извлекаешь знания из документов в структурированный JSON. Отвечай ТОЛЬКО валидным JSON без пояснений."
-  SKILL_ACTIVE="false"
+  PROJECT_SKILL="$(tr -d '\r' < "$SKILL_FILE" | sed 's/^```[a-z]*$//' | sed '/^```$/d')"
+  SYSTEM_PROMPT="${SYSTEM_PROMPT}
+
+=== СКИЛЛ ПРОЕКТА: ${JIRA} ===
+${PROJECT_SKILL}"
+  info "Подключён скилл проекта: ${JIRA}-SKILL.md"
+fi
+
+if [[ -n "${DOMAIN_SKILLS:-}" ]]; then
+  IFS=',' read -ra _DS <<< "$DOMAIN_SKILLS"
+  for ds in "${_DS[@]}"; do
+    ds="$(echo "$ds" | sed 's/[[:space:]]//g')"
+    [[ -z "$ds" ]] && continue
+    ds_file="$BRAIN_DIR/skills/$ds/SKILL.md"
+    if [[ -f "$ds_file" ]]; then
+      SYSTEM_PROMPT="${SYSTEM_PROMPT}
+
+=== ДОМЕННЫЙ СКИЛЛ: ${ds} ===
+$(tr -d '\r' < "$ds_file")"
+      info "Подключён доменный скилл: ${ds}"
+    else
+      warn "Доменный скилл не найден: skills/${ds}/SKILL.md"
+    fi
+  done
 fi
 
 # --- авто-переключение модели если тексты на кириллице ---
@@ -170,6 +195,11 @@ except: print('no')
   fi
 fi
 
+# system prompt теперь крупнее (SA-база + скиллы) — расширяем контекст под него
+SYS_CHARS="${#SYSTEM_PROMPT}"
+NUM_CTX=$(( (MAX_CHARS + SYS_CHARS / 2 + 2048 + 511) / 512 * 512 ))
+info "Контекст модели (num_ctx): ${NUM_CTX} токенов (system ~${SYS_CHARS} симв.)"
+
 COUNT_OK=0; COUNT_SKIP=0; COUNT_ERR=0
 
 log "Тикет: $JIRA | Модель: $MODEL | Лимит: ${MAX_CHARS} символов | Таймаут: ${TIMEOUT}с"
@@ -202,54 +232,24 @@ call_ollama_single() {
   local ref="$2"
   local doc_type="$3"
 
+  # system prompt уже содержит SA-схему (CLAUDE.md) + скиллы — извлекаем строго по ней
   local prompt
-  if [[ "${SKILL_ACTIVE:-false}" == "true" ]]; then
-    prompt="Извлеки знания ТОЛЬКО из текста документа ниже, строго следуя схеме из system prompt.
+  prompt="Извлеки знания ТОЛЬКО из текста документа ниже, строго следуя JSON-схеме из system prompt.
 НЕ генерируй информацию из других источников — только то, что явно присутствует в тексте.
-Верни ТОЛЬКО валидный JSON, без пояснений и markdown-блоков.
-
-ДОКУМЕНТ ($ref):
-$content"
-  else
-    local spfa_instruction=""
-    [[ "$doc_type" == "spfa" ]] && spfa_instruction='
-8. "spfa": массив SPFA оценок вендора (если есть): [{id, vendor, status, findings, tco, source}]'
-    prompt="Проанализируй текст документа и заполни JSON-структуру.
-Каждый элемент массива ДОЛЖЕН быть объектом с полями как в примере ниже.
 Если данных для категории нет — верни пустой массив [].
-Используй только роли людей, не имена.
-
-ПРИМЕР (заполни по аналогии с реальными данными из документа):
-{
-  \"business_context\": [{\"id\": \"BC-001\", \"title\": \"Название инициативы\", \"problem\": \"Какую проблему решает\", \"goals\": \"Цели\", \"source\": \"$ref\", \"tags\": \"#business-context\"}],
-  \"requirements\": [{\"id\": \"BR-001\", \"title\": \"Название требования\", \"type\": \"Functional\", \"description\": \"Описание\", \"priority\": \"Must\", \"source\": \"$ref\", \"tags\": \"#requirement\"}],
-  \"architecture\": [{\"id\": \"ARCH-001\", \"title\": \"Компонент или интеграция\", \"type\": \"Integration\", \"description\": \"Описание\", \"systems\": \"Система A, Система B\", \"protocol\": \"REST\", \"source\": \"$ref\", \"tags\": \"#architecture\"}],
-  \"adrs\": [{\"id\": \"ADR-001\", \"title\": \"Решение\", \"status\": \"Accepted\", \"context\": \"Контекст\", \"decision\": \"Решение\", \"consequences\": \"Последствия\", \"source\": \"$ref\", \"tags\": \"#adr\"}],
-  \"risks\": [{\"id\": \"R-001\", \"title\": \"Название риска\", \"category\": \"Technical\", \"impact\": \"High\", \"probability\": \"Medium\", \"mitigation\": \"Меры\", \"source\": \"$ref\", \"tags\": \"#risk\"}],
-  \"open_questions\": [{\"id\": \"Q-001\", \"question\": \"Вопрос?\", \"context\": \"Контекст\", \"affects\": \"Architecture\", \"owner\": \"Роль\", \"urgency\": \"Normal\", \"source\": \"$ref\", \"tags\": \"#open-question\"}],
-  \"stakeholders\": [{\"id\": \"S-001\", \"role\": \"Product Owner\", \"project\": \"$JIRA\", \"interests\": \"Интересы\", \"raci\": \"Accountable\", \"source\": \"$ref\", \"tags\": \"#stakeholder\"}]${spfa_instruction}
-}
+Используй роли людей, не имена.
+Верни ТОЛЬКО валидный JSON, без пояснений и markdown-блоков.
 
 ДОКУМЕНТ ($ref, тип: $doc_type):
 $content"
-  fi
 
   local payload
-  if [[ "${SKILL_ACTIVE:-false}" == "true" ]]; then
-    payload="$(jq -n \
-      --arg model "$MODEL" \
-      --arg system "$SYSTEM_PROMPT" \
-      --arg prompt "$prompt" \
-      --argjson num_ctx "$NUM_CTX" \
-      '{model: $model, system: $system, prompt: $prompt, stream: true, options: {temperature: 0.1, num_ctx: $num_ctx}}')"
-  else
-    payload="$(jq -n \
-      --arg model "$MODEL" \
-      --arg system "$SYSTEM_PROMPT" \
-      --arg prompt "$prompt" \
-      --argjson num_ctx "$NUM_CTX" \
-      '{model: $model, system: $system, prompt: $prompt, stream: true, format: "json", options: {temperature: 0.1, num_ctx: $num_ctx}}')"
-  fi
+  payload="$(jq -n \
+    --arg model "$MODEL" \
+    --arg system "$SYSTEM_PROMPT" \
+    --arg prompt "$prompt" \
+    --argjson num_ctx "$NUM_CTX" \
+    '{model: $model, system: $system, prompt: $prompt, stream: true, format: "json", options: {temperature: 0.1, num_ctx: $num_ctx}}')"
 
   local skip_flag="$BRAIN_DIR/logs/.skip-$JIRA"
   local skipped_flag="$BRAIN_DIR/logs/.skipped-$JIRA"

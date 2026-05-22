@@ -29,7 +29,7 @@ The team follows the **EACMF** process. All extracted knowledge must map to the 
 ## Input
 Files with YAML frontmatter:
 ```
-type: pdf|docx|pptx|spreadsheet|image|txt|yaml|drawio|bpmn|sql
+type: pdf|docx|pptx|spreadsheet|image|txt|yaml|drawio|bpmn|sql|confluence|jira
 ```
 
 ## Special file types
@@ -38,6 +38,8 @@ type: pdf|docx|pptx|spreadsheet|image|txt|yaml|drawio|bpmn|sql
 - **drawio**: extract component names and arrows → architecture.md AS-IS or TO-BE
 - **bpmn**: extract task names → requirements.md, pools/lanes → stakeholders.md
 - **sql**: extract table names and relations → architecture.md (data model)
+- **confluence** (страница из Confluence space): извлекать как обычный документ — business_context, requirements, architecture, decisions; учитывать дочерние страницы как связанный контекст
+- **jira** (задача Jira с комментариями и связанными): requirements → open_questions → risks → adrs; комментарии — источник open_questions и обсуждений
 - **HLIS-style docs**: focus on Transit Architecture, Bridging, Interface mapping, Deployment requirements
 
 ---
