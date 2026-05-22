@@ -1158,8 +1158,10 @@
       <div class="card">
         <div class="card-title">☁ Confluence / Jira</div>
         <div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">
-          Серверы и токены для загрузки проектов по ссылке. Cloud использует email + API-токен,
-          Data Center / Server — Personal Access Token. Токены хранятся локально в <code>.env</code>.
+          Серверы и токены для загрузки проектов по ссылке. Схема авторизации определяется
+          автоматически: Bearer (Personal Access Token) либо Basic (email + токен — для Cloud
+          и плагинов API-ключей на on-prem). Укажи email, если используешь Basic-токен.
+          Токены хранятся локально в <code>.env</code>.
         </div>
 
         <div class="field">
@@ -1171,7 +1173,7 @@
         </div>
 
         <div class="field" id="atl-email-field">
-          <label>Atlassian email (для Cloud)</label>
+          <label>Atlassian email (для Cloud и Basic-токенов)</label>
           <input type="text" id="atl-email" placeholder="user@company.com" />
         </div>
 
@@ -1199,6 +1201,12 @@
         <div class="btn-row">
           <button class="btn btn-primary" onclick="saveAtlassianSettings()">
             <span>✓</span> Сохранить серверы
+          </button>
+          <button class="btn btn-ghost" onclick="testAtlassian('confluence')">
+            <span>✦</span> Проверить Confluence
+          </button>
+          <button class="btn btn-ghost" onclick="testAtlassian('jira')">
+            <span>✦</span> Проверить Jira
           </button>
         </div>
         <div id="atl-result" style="margin-top:12px;font-size:12px;color:var(--green);display:none"></div>
@@ -2651,8 +2659,6 @@ async function loadSettings() {
 
 function updateAtlassianHints() {
   const dep = (document.getElementById('atl-deployment') || {}).value || 'cloud';
-  const emailField = document.getElementById('atl-email-field');
-  if (emailField) emailField.style.display = dep === 'cloud' ? 'block' : 'none';
   document.querySelectorAll('.atl-hint-cloud').forEach(e => {
     e.style.display = dep === 'cloud' ? 'block' : 'none';
   });
@@ -2681,6 +2687,34 @@ async function saveAtlassianSettings() {
     el.textContent = '✓ Серверы Confluence / Jira сохранены.';
     loadSettings();
   }
+}
+
+async function testAtlassian(which) {
+  const btn = event.target.closest('button');
+  const label = which === 'jira' ? 'Jira' : 'Confluence';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Проверяю...';
+  const el = document.getElementById('atl-result');
+  el.style.display = 'block';
+  el.style.color = 'var(--text3)';
+  el.textContent = 'Проверяю ' + label + '...';
+  try {
+    const r = await fetch(API + '/atlassian/test', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ which })
+    });
+    const data = await r.json();
+    if (data.ok) {
+      el.style.color = 'var(--green)';
+      el.textContent = '✓ ' + label + ' подключение работает' + (data.user ? ' — ' + data.user : '');
+    } else {
+      el.style.color = 'var(--red)';
+      el.textContent = '✗ ' + label + ': ' + (data.error || 'ошибка подключения');
+    }
+  } catch (e) {
+    el.style.color = 'var(--red)';
+    el.textContent = '✗ ' + label + ': ' + e.message;
+  }
+  btn.disabled = false; btn.innerHTML = '<span>✦</span> Проверить ' + label;
 }
 
 async function saveAnonymizeSettings() {

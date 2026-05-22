@@ -150,18 +150,45 @@ function anonymizeText(text) {
 // === Confluence / Jira: загрузка контента по ссылке ===
 const remoteCancels = new Set(); // jira-метки с запрошенной остановкой удалённой загрузки
 
-function atlassianHeaders(which) {
+// Запомненная рабочая схема авторизации: 'confluence'|'jira' → 'Bearer'|'Basic'
+const atlassianAuthCache = {};
+
+// Варианты заголовка Authorization для сервиса. Bearer (нативный PAT) и
+// Basic email:token (Cloud либо плагины API-ключей вроде moapitokens на on-prem).
+function atlassianAuthVariants(which) {
   const deployment = (ENV.ATLASSIAN_DEPLOYMENT || 'cloud').toLowerCase();
   const token = which === 'jira' ? ENV.JIRA_API_TOKEN : ENV.CONFLUENCE_API_TOKEN;
-  if (!token) return null;
-  const h = { 'Accept': 'application/json' };
-  if (deployment === 'server') {
-    h['Authorization'] = 'Bearer ' + token;
-  } else {
-    if (!ENV.ATLASSIAN_EMAIL) return null;
-    h['Authorization'] = 'Basic ' + Buffer.from(ENV.ATLASSIAN_EMAIL + ':' + token).toString('base64');
+  if (!token) return [];
+  const variants = [{ scheme: 'Bearer', auth: 'Bearer ' + token }];
+  if (ENV.ATLASSIAN_EMAIL) {
+    variants.push({
+      scheme: 'Basic',
+      auth: 'Basic ' + Buffer.from(ENV.ATLASSIAN_EMAIL + ':' + token).toString('base64')
+    });
   }
-  return h;
+  const preferred = atlassianAuthCache[which] || (deployment === 'cloud' ? 'Basic' : 'Bearer');
+  return variants.sort((a, b) => (b.scheme === preferred) - (a.scheme === preferred));
+}
+
+// GET к Atlassian с авто-fallback по схеме авторизации.
+async function atlassianGet(which, path) {
+  const label = which === 'jira' ? 'Jira' : 'Confluence';
+  const variants = atlassianAuthVariants(which);
+  if (!variants.length) throw new Error(`${label} не настроен — укажи URL и токен в Настройках`);
+  const base = ((which === 'jira' ? ENV.JIRA_BASE_URL : ENV.CONFLUENCE_BASE_URL) || '').replace(/\/+$/, '');
+  if (!base) throw new Error(`${which === 'jira' ? 'JIRA' : 'CONFLUENCE'}_BASE_URL не задан в Настройках`);
+  let lastErr;
+  for (const v of variants) {
+    const r = await fetch(base + path, {
+      headers: { 'Accept': 'application/json', 'Authorization': v.auth },
+      signal: AbortSignal.timeout(30000)
+    });
+    if (r.ok) { atlassianAuthCache[which] = v.scheme; return r.json(); }
+    lastErr = `${label} API ${r.status} (${path})`;
+    // повторяем другой схемой только при ошибках, похожих на проблему авторизации
+    if (![400, 401, 500].includes(r.status)) break;
+  }
+  throw new Error(lastErr);
 }
 
 function execP(cmd) {
@@ -179,8 +206,12 @@ async function htmlToMd(html) {
   let md = '';
   try {
     writeFileSync(tmpH, String(html));
-    await execP(`pandoc "${tmpH}" -f html -t markdown --wrap=none -o "${tmpM}"`);
+    await execP(`pandoc "${tmpH}" -f html -t gfm --wrap=none -o "${tmpM}"`);
     md = existsSync(tmpM) ? readFileSync(tmpM, 'utf8') : '';
+    // Вырезаем встроенные data-URI картинки — для LLM это бесполезный мусор и раздув
+    md = md
+      .replace(/!\[[^\]]*\]\(data:[^)]*\)/g, '[изображение]')
+      .replace(/<img\b[^>]*\bsrc=["']data:[^"']*["'][^>]*>/gi, '[изображение]');
   } catch {}
   try { if (existsSync(tmpH)) unlinkSync(tmpH); } catch {}
   try { if (existsSync(tmpM)) unlinkSync(tmpM); } catch {}
@@ -206,25 +237,8 @@ function writeRawDoc(jira, baseName, type, source, content) {
   return file;
 }
 
-async function confluenceGet(path) {
-  const headers = atlassianHeaders('confluence');
-  if (!headers) throw new Error('Confluence не настроен — укажи URL, токен (и email для Cloud) в Настройках');
-  const base = (ENV.CONFLUENCE_BASE_URL || '').replace(/\/+$/, '');
-  if (!base) throw new Error('CONFLUENCE_BASE_URL не задан в Настройках');
-  const r = await fetch(base + path, { headers, signal: AbortSignal.timeout(30000) });
-  if (!r.ok) throw new Error(`Confluence API ${r.status} (${path})`);
-  return r.json();
-}
-
-async function jiraGet(path) {
-  const headers = atlassianHeaders('jira');
-  if (!headers) throw new Error('Jira не настроена — укажи URL, токен (и email для Cloud) в Настройках');
-  const base = (ENV.JIRA_BASE_URL || '').replace(/\/+$/, '');
-  if (!base) throw new Error('JIRA_BASE_URL не задан в Настройках');
-  const r = await fetch(base + path, { headers, signal: AbortSignal.timeout(30000) });
-  if (!r.ok) throw new Error(`Jira API ${r.status} (${path})`);
-  return r.json();
-}
+const confluenceGet = (path) => atlassianGet('confluence', path);
+const jiraGet = (path) => atlassianGet('jira', path);
 
 async function resolveConfluencePageId(srcUrl) {
   let m = srcUrl.match(/\/pages\/(\d+)/) || srcUrl.match(/pageId=(\d+)/);
@@ -1365,7 +1379,7 @@ ${context.slice(0, 11000)}`;
       if (['md', 'txt'].includes(ext)) {
         cmd = `cp "${tmpPath}" "${outTmp}"`;
       } else if (['docx', 'doc', 'pptx', 'xlsx'].includes(ext)) {
-        cmd = `pandoc "${tmpPath}" -t markdown --wrap=none -o "${outTmp}"`;
+        cmd = `pandoc "${tmpPath}" -t gfm --wrap=none -o "${outTmp}"`;
       } else if (['png', 'jpg', 'jpeg'].includes(ext)) {
         cmd = `tesseract "${tmpPath}" stdout -l rus+eng > "${outTmp}"`;
       } else {
@@ -1496,6 +1510,34 @@ ${context.slice(0, 11000)}`;
       writeFileSync(envPath, lines.join('\n') + '\n');
       ENV = loadEnv();
       return json(res, { ok: true });
+    }
+
+    // POST /api/atlassian/test  { which: 'confluence' | 'jira' }
+    if (req.method === 'POST' && url.pathname === '/api/atlassian/test') {
+      const { which } = await getBody(req);
+      try {
+        if (which === 'jira') {
+          const me = await jiraGet('/rest/api/2/myself');
+          return json(res, { ok: true, user: me.displayName || me.name || me.emailAddress || 'OK' });
+        }
+        await confluenceGet('/rest/api/space?limit=1');
+        return json(res, { ok: true });
+      } catch (e) {
+        let msg = e.message;
+        const deployment = (ENV.ATLASSIAN_DEPLOYMENT || 'cloud').toLowerCase();
+        if (/\b401\b/.test(msg)) {
+          msg = 'токен отклонён (401) — проверь токен' + (deployment === 'cloud' ? ' и email' : '');
+        } else if (/\b403\b/.test(msg)) {
+          msg = 'доступ запрещён (403) — у токена нет прав на этот ресурс';
+        } else if (/\b404\b/.test(msg)) {
+          msg = 'API не найден (404) — проверь Base URL';
+        } else if (/\b500\b/.test(msg) && deployment === 'server') {
+          msg = 'токен невалиден — сервер не смог его распознать. Нужен Personal Access Token (Профиль → Settings → Personal Access Tokens)';
+        } else if (/timed out|timeout|aborted/i.test(msg)) {
+          msg = 'сервер не отвечает — проверь Base URL и доступность сети';
+        }
+        return json(res, { ok: false, error: msg });
+      }
     }
 
     // POST /api/claude  { system, userPrompt, max_tokens }
