@@ -1484,6 +1484,7 @@ function showView(view) {
   if (view === 'skipped' && state.project) loadSkipped();
   if (view === 'skills') loadSkillsList();
   if (view === 'templates') { loadTemplatesList(); loadStandards(); }
+  if (typeof showViewHelp === 'function') showViewHelp(view, false);
 }
 
 // === STOP / SKIP ===
@@ -3160,9 +3161,17 @@ const I18N = {
     wiz_ind_title:'3. Отрасль базы знаний',
     wiz_ind_sub:'Под какую отрасль собираем ML/AI базу знаний. По умолчанию — общий ML/AI с готовыми шаблонами.',
     wiz_ind_upload:'Для выбранной отрасли встроенных шаблонов нет — загрузи свои .md шаблоны на вкладке «Шаблоны».',
-    wiz_models_title:'4. Модель', wiz_models_sub:'Локальная модель Ollama обязательна. Claude API — опционально (глубокий анализ).',
+    wiz_models_title:'5. Модель', wiz_models_sub:'Локальная модель Ollama обязательна. Claude API — опционально (глубокий анализ).',
     wiz_back:'Назад', wiz_next:'Далее', wiz_finish:'Готово', wiz_skip:'Пропустить',
-    req:'обязательно', opt:'опционально', checking:'проверяю…'
+    req:'обязательно', opt:'опционально', checking:'проверяю…',
+    wiz_overview_title:'1. Что умеет приложение',
+    wiz_overview_sub:'Коротко о пути от документа к переиспользуемым знаниям.',
+    wiz_ov1:'① Загрузи документы в проект (PDF, Word, картинки…) — вкладка «Загрузить проект».',
+    wiz_ov2:'② По желанию настрой скилл проекта — короткую инструкцию, что извлекать.',
+    wiz_ov3:'③ Запусти обработку — локальная модель превращает документы в структурированные знания.',
+    wiz_ov4:'④ Пользуйся: спрашивай модель, генерируй документы и диаграммы, собирай свои скиллы.',
+    vhelp_tag:'Подсказка по экрану', vhelp_ok:'Понятно',
+    vhelp_off:'Не показывать подсказки автоматически', vhelp_help_btn:'Подсказка по этому экрану'
   },
   en: {
     nav_section:'Navigation', projects_section:'Projects',
@@ -3180,9 +3189,17 @@ const I18N = {
     wiz_ind_title:'3. Knowledge-base industry',
     wiz_ind_sub:'Which industry this ML/AI knowledge base targets. Default is general ML/AI with ready-made templates.',
     wiz_ind_upload:'No built-in templates for this industry — upload your own .md templates on the Templates tab.',
-    wiz_models_title:'4. Model', wiz_models_sub:'A local Ollama model is required. Claude API is optional (deep analysis).',
+    wiz_models_title:'5. Model', wiz_models_sub:'A local Ollama model is required. Claude API is optional (deep analysis).',
     wiz_back:'Back', wiz_next:'Next', wiz_finish:'Done', wiz_skip:'Skip',
-    req:'required', opt:'optional', checking:'checking…'
+    req:'required', opt:'optional', checking:'checking…',
+    wiz_overview_title:'1. What the app can do',
+    wiz_overview_sub:'The short path from a document to reusable knowledge.',
+    wiz_ov1:'① Load documents into a project (PDF, Word, images…) — the “Load project” tab.',
+    wiz_ov2:'② Optionally tune a project skill — a short instruction on what to extract.',
+    wiz_ov3:'③ Run processing — the local model turns documents into structured knowledge.',
+    wiz_ov4:'④ Use it: ask the model, generate documents and diagrams, build your own skills.',
+    vhelp_tag:'Screen tip', vhelp_ok:'Got it',
+    vhelp_off:'Don\'t show tips automatically', vhelp_help_btn:'Help for this screen'
   }
 };
 let LANG = localStorage.getItem('uiLang') || ((navigator.language || 'en').slice(0,2) === 'ru' ? 'ru' : 'en');
@@ -3201,6 +3218,7 @@ function applyLang(){
   if (titleEl) titleEl.textContent = t('nav_' + (state.view || 'ingest'));
   const lb = document.getElementById('lang-toggle'); if (lb) lb.textContent = LANG === 'ru' ? 'EN' : 'RU';
   const sb = document.getElementById('setup-btn'); if (sb) sb.title = t('setup_btn');
+  const hb = document.getElementById('help-btn'); if (hb) hb.title = t('vhelp_help_btn');
 }
 function setLang(l){
   LANG = l; localStorage.setItem('uiLang', l); applyLang();
@@ -3216,6 +3234,122 @@ const INDUSTRIES = [
   { id:'Telecom',       ru:'Телеком',                     en:'Telecom' }
 ];
 
+// Per-screen help — shown when switching screens via the menu
+const VIEW_HELP = {
+  ingest: {
+    ru: { title:'Загрузить проект', steps:[
+      'Введи короткую метку проекта (например ATTENTION-PAPERS) и путь к папке с документами.',
+      '① Загрузить и конвертировать: PDF, Word, Excel, PowerPoint, картинки и диаграммы → markdown.',
+      '② Скилл проекта (необязательно): модель предложит инструкцию, что извлекать.',
+      '③ Запустить обработку: локальная модель извлекает структурированные знания.',
+      '■ Стоп прерывает, ⇥ Пропустить файл пропускает зависший документ.' ] },
+    en: { title:'Load project', steps:[
+      'Enter a short project label (e.g. ATTENTION-PAPERS) and a path to a folder of documents.',
+      '① Load & convert: PDF, Word, Excel, PowerPoint, images and diagrams → markdown.',
+      '② Project skill (optional): the model proposes an instruction on what to extract.',
+      '③ Run processing: the local model extracts structured knowledge.',
+      '■ Stop interrupts, ⇥ Skip file skips a stuck document.' ] }
+  },
+  skipped: {
+    ru: { title:'Пропущенные файлы', steps:[
+      'Здесь видны файлы, которые не удалось прочитать (сканы, битые кодировки).',
+      'Выбери проект, чтобы увидеть список пропущенных файлов.',
+      '⇪ Заменить файл читаемой версией и Переобработать.' ] },
+    en: { title:'Skipped files', steps:[
+      'Shows files that could not be read (scanned PDFs, broken encodings).',
+      'Pick a project to see its skipped files.',
+      '⇪ Replace a file with a readable version and Reprocess.' ] }
+  },
+  chat: {
+    ru: { title:'Спросить модель', steps:[
+      'Задавай вопросы по базе знаний одного или нескольких проектов (контексты объединяются).',
+      'Например: «какие модели сравниваются и на каких датасетах?»',
+      '✦ Claude API — для более глубокого анализа (контент уходит в облако; см. приватность).' ] },
+    en: { title:'Ask the model', steps:[
+      'Ask questions across one or more projects (their contexts merge).',
+      'For example: “which models are compared, and on which datasets?”',
+      '✦ Claude API — for deeper analysis (content goes to the cloud; see privacy).' ] }
+  },
+  artifact: {
+    ru: { title:'Генерация артефакта', steps:[
+      '📄 Текстовый раздел: выбери шаблон и раздел — модель заполнит его из базы знаний.',
+      '◫ PlantUML и ⬚ drawio: генерация диаграмм из знаний с живым превью и экспортом.',
+      'Результат можно отредактировать перед сохранением.' ] },
+    en: { title:'Generate artifact', steps:[
+      '📄 Text section: pick a template and a section — the model fills it from your knowledge base.',
+      '◫ PlantUML and ⬚ drawio: generate diagrams from knowledge with live preview and export.',
+      'You can edit the result before saving.' ] }
+  },
+  skills: {
+    ru: { title:'Скиллы', steps:[
+      'Скиллы — короткие инструкции, которые делают извлечение точнее.',
+      '⊕ Создать из PDF книги/стандарта или ◎ из знаний проекта.',
+      'Встроенный knowledge-processor (CLAUDE.md) показан только для чтения.' ] },
+    en: { title:'Skills', steps:[
+      'Skills are short instructions that make extraction sharper.',
+      '⊕ Build from a PDF book/framework, or ◎ from a project’s knowledge.',
+      'The built-in knowledge-processor (CLAUDE.md) is shown read-only.' ] }
+  },
+  templates: {
+    ru: { title:'Шаблоны', steps:[
+      'Библиотека .md шаблонов для генерации документов.',
+      'Генерируй шаблон из существующего документа или по стандарту ML/AI (Model Cards, Datasheets, CRISP-DM…).',
+      'Для отрасли, отличной от General ML/AI, загрузи сюда свои .md шаблоны.' ] },
+    en: { title:'Templates', steps:[
+      'A library of .md templates for document generation.',
+      'Generate a template from an existing document or an ML/AI standard (Model Cards, Datasheets, CRISP-DM…).',
+      'For a non-General-ML/AI industry, upload your own .md templates here.' ] }
+  },
+  settings: {
+    ru: { title:'Настройки', steps:[
+      'Модель Ollama, ключ Claude API, размер чанка, язык и отрасль.',
+      '⚙ Анонимизация — обезличивает контент перед отправкой в облако.',
+      'Кнопкой ✦ в шапке можно снова открыть мастер настройки.' ] },
+    en: { title:'Settings', steps:[
+      'Ollama model, Claude API key, chunk size, language and industry.',
+      '⚙ Anonymize — strips identifying content before sending to the cloud.',
+      'The ✦ button in the header reopens the setup wizard.' ] }
+  }
+};
+const VIEW_ICONS = { ingest:'⊕', skipped:'⚠', chat:'◎', artifact:'◈', skills:'◆', templates:'◇', settings:'⚙' };
+function buildViewHelpDom(){
+  if (document.getElementById('vhelp-overlay')) return;
+  const o = document.createElement('div');
+  o.id = 'vhelp-overlay';
+  o.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;align-items:center;justify-content:center;padding:20px';
+  o.innerHTML = '<div class="vhelp-card card" style="max-width:460px;width:100%"></div>';
+  o.addEventListener('click', e => { if (e.target === o) closeViewHelp(); });
+  document.body.appendChild(o);
+}
+function closeViewHelp(){ const o=document.getElementById('vhelp-overlay'); if(o) o.style.display='none'; }
+function vhelpSeen(){ try { return JSON.parse(localStorage.getItem('vhelp_seen')||'[]'); } catch(e){ return []; } }
+function showViewHelp(view, force){
+  const h = VIEW_HELP[view]; if(!h) return;
+  if (!force){
+    if (localStorage.getItem('vhelp_off')==='1') return;
+    if (!localStorage.getItem('onboarded')) return;
+    const wz = document.getElementById('wiz-overlay');
+    if (wz && wz.style.display !== 'none') return;
+    if (vhelpSeen().indexOf(view) >= 0) return;
+  }
+  buildViewHelpDom();
+  const c = h[LANG] || h.ru;
+  const off = localStorage.getItem('vhelp_off')==='1';
+  document.querySelector('#vhelp-overlay .vhelp-card').innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
+      '<strong style="font-size:15px">'+(VIEW_ICONS[view]||'')+' '+c.title+'</strong>'+
+      '<span style="color:var(--text3);font-size:11px">'+t('vhelp_tag')+'</span></div>'+
+    '<ul style="margin:6px 0 4px;padding-left:18px;font-size:12.5px;color:var(--text2);line-height:1.7">'+
+      c.steps.map(s => '<li>'+s+'</li>').join('')+'</ul>'+
+    '<label style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text3);margin-top:10px;cursor:pointer">'+
+      '<input type="checkbox" '+(off?'checked':'')+' onchange="localStorage.setItem(\'vhelp_off\', this.checked?\'1\':\'0\')"> '+t('vhelp_off')+'</label>'+
+    '<div style="display:flex;justify-content:flex-end;margin-top:12px">'+
+      '<button class="btn btn-primary btn-sm" onclick="closeViewHelp()">'+t('vhelp_ok')+'</button></div>';
+  const sv = vhelpSeen();
+  if (sv.indexOf(view) < 0){ sv.push(view); localStorage.setItem('vhelp_seen', JSON.stringify(sv)); }
+  document.getElementById('vhelp-overlay').style.display = 'flex';
+}
+
 function injectChrome(){
   // language toggle + setup button in topbar
   const bar = document.querySelector('.topbar');
@@ -3223,9 +3357,11 @@ function injectChrome(){
     const wrap = document.createElement('span');
     wrap.style.cssText = 'margin-left:auto;display:flex;gap:8px;align-items:center';
     wrap.innerHTML =
+      '<button id="help-btn" class="btn btn-ghost btn-sm" onclick="showViewHelp(state.view, true)" title="">ⓘ</button>' +
       '<button id="setup-btn" class="btn btn-ghost btn-sm" onclick="openWizard(true)" title="">✦ <span></span></button>' +
       '<button id="lang-toggle" class="btn btn-ghost btn-sm" onclick="setLang(LANG===\'ru\'?\'en\':\'ru\')"></button>';
     bar.appendChild(wrap);
+    const hbtn = document.getElementById('help-btn'); if (hbtn) hbtn.title = t('vhelp_help_btn');
     document.querySelector('#setup-btn span').textContent = '';
     document.querySelector('#setup-btn').childNodes[0].nodeValue = '✦ ';
     document.querySelector('#setup-btn').lastElementChild.textContent = t('setup_btn');
@@ -3242,11 +3378,11 @@ async function finishWizard(){
   closeWizard(); loadSettings();
 }
 function wizNav(d){
-  if (d>0 && wizStep<3){ wizStep++; }
+  if (d>0 && wizStep<4){ wizStep++; }
   else if (d<0 && wizStep>0){ wizStep--; }
-  else if (d>0 && wizStep===3){ return finishWizard(); }
+  else if (d>0 && wizStep===4){ return finishWizard(); }
   renderWizard();
-  if (wizStep===0) runSelfCheck();
+  if (wizStep===1) runSelfCheck();
 }
 async function runSelfCheck(){
   const box = document.getElementById('wiz-check-list'); if(!box) return;
@@ -3267,6 +3403,9 @@ function renderWizard(){
   const o = document.getElementById('wiz-overlay');
   if (!o) return;
   const steps = [
+    { title:'wiz_overview_title', sub:'wiz_overview_sub', body:
+      '<div style="font-size:13px;color:var(--text2);line-height:1.9;margin:8px 0">'+
+      t('wiz_ov1')+'<br>'+t('wiz_ov2')+'<br>'+t('wiz_ov3')+'<br>'+t('wiz_ov4')+'</div>' },
     { title:'wiz_check_title', sub:'wiz_check_sub', body:
       '<div id="wiz-check-list" style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px;margin:8px 0"></div>'+
       '<div id="wiz-check-note" style="font-size:11px;margin-bottom:8px"></div>'+
@@ -3290,7 +3429,7 @@ function renderWizard(){
   o.querySelector('.wiz-card').innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
       '<strong style="font-size:16px">'+t('wiz_welcome_title')+'</strong>'+
-      '<span style="color:var(--text3);font-size:11px">'+t('wiz_step')+' '+(wizStep+1)+' '+t('wiz_of')+' 4</span></div>'+
+      '<span style="color:var(--text3);font-size:11px">'+t('wiz_step')+' '+(wizStep+1)+' '+t('wiz_of')+' 5</span></div>'+
     '<div style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.5">'+t('wiz_welcome_sub')+'</div>'+
     '<div style="border-top:1px solid var(--border);padding-top:12px"><strong style="font-size:13px">'+t(s.title)+'</strong>'+
       '<div style="font-size:11px;color:var(--text3);margin:4px 0 6px;line-height:1.5">'+t(s.sub)+'</div>'+s.body+'</div>'+
@@ -3298,7 +3437,7 @@ function renderWizard(){
       '<button class="btn btn-ghost btn-sm" onclick="closeWizard()">'+t('wiz_skip')+'</button>'+
       '<div style="display:flex;gap:8px">'+
         (wizStep>0?'<button class="btn btn-ghost" onclick="wizNav(-1)">'+t('wiz_back')+'</button>':'')+
-        '<button class="btn btn-primary" onclick="wizNav(1)">'+(wizStep===3?t('wiz_finish'):t('wiz_next'))+'</button>'+
+        '<button class="btn btn-primary" onclick="wizNav(1)">'+(wizStep===4?t('wiz_finish'):t('wiz_next'))+'</button>'+
       '</div></div>';
 }
 function buildWizardDom(){
