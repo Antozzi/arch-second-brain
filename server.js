@@ -89,7 +89,7 @@ async function runSelfCheck() {
   const results = [];
   for (const c of SELFCHECK_COMPONENTS) {
     const r = await probeCmd(c.cmd);
-    results.push({ id: c.id, label: c.label, required: c.required, ok: r.ok, detail: r.ok ? r.out : 'не найден', hint: c.ok ? '' : c.hint });
+    results.push({ id: c.id, label: c.label, required: c.required, ok: r.ok, detail: r.ok ? r.out : 'не найден', hint: r.ok ? '' : c.hint });
   }
   // Ollama: сервер + наличие выбранной модели
   let ollamaServer = false, models = [], modelOk = false;

@@ -590,7 +590,7 @@
           <span id="skill-status-badge" style="font-size:10px;font-weight:400;color:var(--text3)"></span>
         </div>
         <div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">
-          Модель анализирует документы и предлагает инструкцию (<span id="skill-filename-desc">JIRA-SKILL.md</span>), управляющую извлечением знаний. Без скилла используется дефолтный SA-промпт.
+          Модель анализирует документы и предлагает инструкцию (<span id="skill-filename-desc">SKILL.md</span>), управляющую извлечением знаний. Без скилла используется базовый промпт из CLAUDE.md.
         </div>
         <div class="btn-row" style="margin-bottom:12px">
           <button class="btn btn-ghost" onclick="analyzeForSkill()" id="btn-analyze-skill">
@@ -1480,8 +1480,7 @@ function showView(view) {
     document.getElementById(`view-${v}`).style.display = v === view ? 'block' : 'none';
     document.getElementById(`nav-${v}`).classList.toggle('active', v === view);
   });
-  const titles = { ingest:'Загрузить проект', skipped:'Пропущенные файлы', chat:'Спросить модель', artifact:'Генерация артефакта', skills:'Скиллы', templates:'Шаблоны', settings:'Настройки' };
-  document.getElementById('view-title').textContent = titles[view];
+  document.getElementById('view-title').textContent = (typeof t === 'function') ? t('nav_' + view) : view;
   if (view === 'skipped' && state.project) loadSkipped();
   if (view === 'skills') loadSkillsList();
   if (view === 'templates') { loadTemplatesList(); loadStandards(); }
@@ -3141,9 +3140,190 @@ async function applyGlobalSkill() {
   if (ta) ta.value = content;
 }
 
+// ============================================================
+// i18n (EN/RU) + first-run onboarding wizard — educational template
+// ============================================================
+const I18N = {
+  ru: {
+    nav_section:'Навигация', projects_section:'Проекты',
+    nav_ingest:'Загрузить проект', nav_skipped:'Пропущенные файлы', nav_chat:'Спросить модель',
+    nav_artifact:'Генерация артефакта', nav_skills:'Скиллы', nav_templates:'Шаблоны', nav_settings:'Настройки',
+    setup_btn:'Мастер настройки',
+    wiz_welcome_title:'Добро пожаловать в Second Brain',
+    wiz_welcome_sub:'Локальный AI-пайплайн: документы → структурированные знания → переиспользуемый контекст. Пройдём настройку за 4 шага.',
+    wiz_step:'Шаг', wiz_of:'из',
+    wiz_check_title:'1. Проверка окружения',
+    wiz_check_sub:'Проверяем, что на компьютере установлены нужные компоненты (см. INSTALLATION.md).',
+    wiz_check_run:'Проверить снова', wiz_check_ok:'Всё готово — обязательные компоненты на месте.',
+    wiz_check_fail:'Не хватает обязательных компонентов — установи их и нажми «Проверить снова».',
+    wiz_lang_title:'2. Язык интерфейса', wiz_lang_sub:'Можно сменить в любой момент кнопкой в шапке.',
+    wiz_ind_title:'3. Отрасль базы знаний',
+    wiz_ind_sub:'Под какую отрасль собираем ML/AI базу знаний. По умолчанию — общий ML/AI с готовыми шаблонами.',
+    wiz_ind_upload:'Для выбранной отрасли встроенных шаблонов нет — загрузи свои .md шаблоны на вкладке «Шаблоны».',
+    wiz_models_title:'4. Модель', wiz_models_sub:'Локальная модель Ollama обязательна. Claude API — опционально (глубокий анализ).',
+    wiz_back:'Назад', wiz_next:'Далее', wiz_finish:'Готово', wiz_skip:'Пропустить',
+    req:'обязательно', opt:'опционально', checking:'проверяю…'
+  },
+  en: {
+    nav_section:'Navigation', projects_section:'Projects',
+    nav_ingest:'Load project', nav_skipped:'Skipped files', nav_chat:'Ask the model',
+    nav_artifact:'Generate artifact', nav_skills:'Skills', nav_templates:'Templates', nav_settings:'Settings',
+    setup_btn:'Setup wizard',
+    wiz_welcome_title:'Welcome to Second Brain',
+    wiz_welcome_sub:'A local AI pipeline: documents → structured knowledge → reusable context. Let\'s set it up in 4 steps.',
+    wiz_step:'Step', wiz_of:'of',
+    wiz_check_title:'1. Environment check',
+    wiz_check_sub:'Verifying the required components are installed on this machine (see INSTALLATION.md).',
+    wiz_check_run:'Re-check', wiz_check_ok:'All set — required components are present.',
+    wiz_check_fail:'Some required components are missing — install them and click Re-check.',
+    wiz_lang_title:'2. Interface language', wiz_lang_sub:'You can switch any time from the header button.',
+    wiz_ind_title:'3. Knowledge-base industry',
+    wiz_ind_sub:'Which industry this ML/AI knowledge base targets. Default is general ML/AI with ready-made templates.',
+    wiz_ind_upload:'No built-in templates for this industry — upload your own .md templates on the Templates tab.',
+    wiz_models_title:'4. Model', wiz_models_sub:'A local Ollama model is required. Claude API is optional (deep analysis).',
+    wiz_back:'Back', wiz_next:'Next', wiz_finish:'Done', wiz_skip:'Skip',
+    req:'required', opt:'optional', checking:'checking…'
+  }
+};
+let LANG = localStorage.getItem('uiLang') || ((navigator.language || 'en').slice(0,2) === 'ru' ? 'ru' : 'en');
+function t(k){ return (I18N[LANG] && I18N[LANG][k]) || I18N.ru[k] || k; }
+function applyLang(){
+  document.documentElement.lang = LANG;
+  const icons = { ingest:'⊕', skipped:'⚠', chat:'◎', artifact:'◈', skills:'◆', templates:'◇', settings:'⚙' };
+  Object.keys(icons).forEach(v => {
+    const b = document.getElementById('nav-'+v);
+    if (b) b.innerHTML = '<span class="icon">'+icons[v]+'</span> '+t('nav_'+v);
+  });
+  const labels = document.querySelectorAll('.sidebar .nav-label');
+  if (labels[0]) labels[0].textContent = t('nav_section');
+  if (labels[1]) labels[1].textContent = t('projects_section');
+  const titleEl = document.getElementById('view-title');
+  if (titleEl) titleEl.textContent = t('nav_' + (state.view || 'ingest'));
+  const lb = document.getElementById('lang-toggle'); if (lb) lb.textContent = LANG === 'ru' ? 'EN' : 'RU';
+  const sb = document.getElementById('setup-btn'); if (sb) sb.title = t('setup_btn');
+}
+function setLang(l){
+  LANG = l; localStorage.setItem('uiLang', l); applyLang();
+  fetch(API + '/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ UI_LANG: l }) }).catch(()=>{});
+}
+
+const INDUSTRIES = [
+  { id:'Generic',       ru:'Общий ML/AI (по умолчанию)', en:'General ML/AI (default)', builtin:true },
+  { id:'Healthcare',    ru:'Медицина / Здравоохранение',  en:'Healthcare' },
+  { id:'Finance',       ru:'Финансы',                     en:'Finance' },
+  { id:'Retail',        ru:'Ритейл',                      en:'Retail' },
+  { id:'Manufacturing', ru:'Производство',                en:'Manufacturing' },
+  { id:'Telecom',       ru:'Телеком',                     en:'Telecom' }
+];
+
+function injectChrome(){
+  // language toggle + setup button in topbar
+  const bar = document.querySelector('.topbar');
+  if (bar && !document.getElementById('lang-toggle')) {
+    const wrap = document.createElement('span');
+    wrap.style.cssText = 'margin-left:auto;display:flex;gap:8px;align-items:center';
+    wrap.innerHTML =
+      '<button id="setup-btn" class="btn btn-ghost btn-sm" onclick="openWizard(true)" title="">✦ <span></span></button>' +
+      '<button id="lang-toggle" class="btn btn-ghost btn-sm" onclick="setLang(LANG===\'ru\'?\'en\':\'ru\')"></button>';
+    bar.appendChild(wrap);
+    document.querySelector('#setup-btn span').textContent = '';
+    document.querySelector('#setup-btn').childNodes[0].nodeValue = '✦ ';
+    document.querySelector('#setup-btn').lastElementChild.textContent = t('setup_btn');
+  }
+}
+
+let wizStep = 0, wizIndustry = 'Generic', wizForce = false;
+function openWizard(force){ wizForce = !!force; wizStep = 0; renderWizard(); document.getElementById('wiz-overlay').style.display='flex'; runSelfCheck(); }
+function closeWizard(){ const o=document.getElementById('wiz-overlay'); if(o) o.style.display='none'; }
+async function finishWizard(){
+  await fetch(API + '/settings', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ INDUSTRY: wizIndustry, UI_LANG: LANG }) }).catch(()=>{});
+  localStorage.setItem('onboarded','1');
+  closeWizard(); loadSettings();
+}
+function wizNav(d){
+  if (d>0 && wizStep<3){ wizStep++; }
+  else if (d<0 && wizStep>0){ wizStep--; }
+  else if (d>0 && wizStep===3){ return finishWizard(); }
+  renderWizard();
+  if (wizStep===0) runSelfCheck();
+}
+async function runSelfCheck(){
+  const box = document.getElementById('wiz-check-list'); if(!box) return;
+  box.innerHTML = '<div class="empty">'+t('checking')+'</div>';
+  const r = await fetch(API + '/selfcheck').catch(()=>null);
+  if(!r){ box.innerHTML = '<div class="empty">error</div>'; return; }
+  const d = await r.json();
+  box.innerHTML = d.components.map(c => {
+    const mark = c.ok ? '<span style="color:var(--green)">✓</span>' : (c.required ? '<span style="color:#e55">✗</span>' : '<span style="color:var(--amber)">○</span>');
+    const tag = c.required ? t('req') : t('opt');
+    const hint = (!c.ok && c.hint) ? '<div style="font-size:10px;color:var(--text3);margin:2px 0 0 18px">'+c.hint+'</div>' : '';
+    return '<div style="padding:4px 0;font-size:12px">'+mark+' <b>'+c.label+'</b> <span style="color:var(--text3);font-size:10px">('+tag+')</span> — <span style="color:var(--text2)">'+c.detail+'</span>'+hint+'</div>';
+  }).join('');
+  const note = document.getElementById('wiz-check-note');
+  if (note) { note.textContent = d.ok ? t('wiz_check_ok') : t('wiz_check_fail'); note.style.color = d.ok ? 'var(--green)' : 'var(--amber)'; }
+}
+function renderWizard(){
+  const o = document.getElementById('wiz-overlay');
+  if (!o) return;
+  const steps = [
+    { title:'wiz_check_title', sub:'wiz_check_sub', body:
+      '<div id="wiz-check-list" style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px;margin:8px 0"></div>'+
+      '<div id="wiz-check-note" style="font-size:11px;margin-bottom:8px"></div>'+
+      '<button class="btn btn-ghost btn-sm" onclick="runSelfCheck()">↻ '+t('wiz_check_run')+'</button>' },
+    { title:'wiz_lang_title', sub:'wiz_lang_sub', body:
+      '<div style="display:flex;gap:10px;margin:10px 0">'+
+      '<button class="btn '+(LANG==='ru'?'btn-primary':'btn-ghost')+'" onclick="setLang(\'ru\');renderWizard()">Русский</button>'+
+      '<button class="btn '+(LANG==='en'?'btn-primary':'btn-ghost')+'" onclick="setLang(\'en\');renderWizard()">English</button></div>' },
+    { title:'wiz_ind_title', sub:'wiz_ind_sub', body:
+      '<div style="display:flex;flex-direction:column;gap:6px;margin:10px 0">'+
+      INDUSTRIES.map(i => '<label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer">'+
+        '<input type="radio" name="wiz-ind" value="'+i.id+'" '+(wizIndustry===i.id?'checked':'')+' onchange="wizIndustry=this.value;renderWizard()"> '+
+        (LANG==='ru'?i.ru:i.en)+(i.builtin?' <span style="color:var(--green);font-size:10px">templates ✓</span>':'')+'</label>').join('')+'</div>'+
+      (wizIndustry!=='Generic' ? '<div style="font-size:11px;color:var(--amber);line-height:1.5">⚠ '+t('wiz_ind_upload')+'</div>' : '') },
+    { title:'wiz_models_title', sub:'wiz_models_sub', body:
+      '<div style="font-size:12px;color:var(--text2);line-height:1.7;margin:8px 0">'+
+      '<code>ollama pull llama3.1:8b</code> &nbsp;/&nbsp; <code>ollama pull gemma3:12b</code><br>'+
+      '⚙ '+t('nav_settings')+' → Ollama / Claude API</div>' }
+  ];
+  const s = steps[wizStep];
+  o.querySelector('.wiz-card').innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
+      '<strong style="font-size:16px">'+t('wiz_welcome_title')+'</strong>'+
+      '<span style="color:var(--text3);font-size:11px">'+t('wiz_step')+' '+(wizStep+1)+' '+t('wiz_of')+' 4</span></div>'+
+    '<div style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.5">'+t('wiz_welcome_sub')+'</div>'+
+    '<div style="border-top:1px solid var(--border);padding-top:12px"><strong style="font-size:13px">'+t(s.title)+'</strong>'+
+      '<div style="font-size:11px;color:var(--text3);margin:4px 0 6px;line-height:1.5">'+t(s.sub)+'</div>'+s.body+'</div>'+
+    '<div style="display:flex;justify-content:space-between;margin-top:16px">'+
+      '<button class="btn btn-ghost btn-sm" onclick="closeWizard()">'+t('wiz_skip')+'</button>'+
+      '<div style="display:flex;gap:8px">'+
+        (wizStep>0?'<button class="btn btn-ghost" onclick="wizNav(-1)">'+t('wiz_back')+'</button>':'')+
+        '<button class="btn btn-primary" onclick="wizNav(1)">'+(wizStep===3?t('wiz_finish'):t('wiz_next'))+'</button>'+
+      '</div></div>';
+}
+function buildWizardDom(){
+  if (document.getElementById('wiz-overlay')) return;
+  const o = document.createElement('div');
+  o.id = 'wiz-overlay';
+  o.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;padding:20px';
+  o.innerHTML = '<div class="wiz-card card" style="max-width:520px;width:100%;max-height:88vh;overflow:auto"></div>';
+  document.body.appendChild(o);
+}
+function initOnboarding(){
+  buildWizardDom();
+  injectChrome();
+  applyLang();
+  // first run: show wizard unless already onboarded
+  fetch(API + '/settings').then(r=>r.json()).then(d=>{
+    if (d && d.industry && d.industry !== 'Generic') wizIndustry = d.industry;
+    if (!localStorage.getItem('onboarded')) openWizard(false);
+  }).catch(()=>{ if(!localStorage.getItem('onboarded')) openWizard(false); });
+}
+
 init();
 loadSettings();
 refreshOllamaModels();
+initOnboarding();
 </script>
 </body>
 </html>
