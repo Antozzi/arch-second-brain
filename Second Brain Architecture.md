@@ -1,244 +1,125 @@
-## Personal Knowledge Pipeline · Solution Architect · Beeline KZ
-**Version**: 1.0 · April 2026  
-**Owner**: Anton Dyrdin  
-**Stack**: VS Code · Ollama · Obsidian · Claude API
+# Second Brain — Architecture
+
+**A local, agentic pipeline that turns documents into structured, reusable knowledge.**
+
+This document explains *how the system is put together* so you can read the code with a map in hand — and retarget it to your own domain. For install steps see [INSTALLATION.md](INSTALLATION.md); for running and troubleshooting see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
-## Контекст и цель
+## Goal
 
-Solution Architect в ИТ-компании (дочка Beeline KZ). До 3 параллельных проектов одновременно.
+Build your first **local AI-agentic application**: a small "document → structured knowledge → reusable context" pipeline that runs entirely on your machine. Nothing leaves the computer unless *you* opt into the cloud. The worked example extracts **ML/AI study notes**, but every part is meant to be swapped for your own domain.
 
-**Pain point**: корпоративный AI-агент (Aventa) не справляется из-за ограничений токенов и архитектуры. Корпоративная ИБ блокирует ChatGPT/Claude Pro. Рабочий Mac M3 Pro 18GB.
-
-**Цель системы**: персональный AI-слой поверх корпоративных ограничений — полностью локальный, данные не покидают машину, работает с реальными рабочими материалами.
-
----
-
-## Железо и окружение
-
-- MacBook Pro M3 Pro · 18GB unified memory
-- VS Code (основная IDE и оркестратор)
-- Obsidian (UI для навигации по knowledge base)
-- Рабочая папка: `iCloud Drive/Documents/Working Docs before OneDrive/`
-
-**Активные проекты** (папки-источники):
-- АМЛ (82.8 MB)
-- ESS-IDM (464.6 MB)
-- Unitel (182.8 MB)
-- PureHealth (4 MB)
-- Presales (79 KB)
-- EA, EDMS, DARLean, Pulse AI, R&D Lab и др.
+Design principles:
+- **Local-first** — a local LLM (via Ollama) does the heavy lifting; your data stays on disk.
+- **Schema-driven** — what gets extracted is defined in one file (`CLAUDE.md`), not hardwired in code.
+- **Steerable** — small `SKILL.md` files nudge the model toward better, domain-specific results.
+- **No build step** — plain Node.js + a single-file browser UI + Bash scripts. Read it top to bottom.
 
 ---
 
-## Архитектура системы
-
-### Слои
+## The layers
 
 ```
-[ ЛОКАЛЬНО ]
-  Working Docs/          ← рабочие папки, не трогаем
-  second-brain/
-    raw/                 ← сырое входящее после конвертации
-    knowledge/           ← обезличенные структурированные знания
-  Ollama (Llama 3.1 8B) ← локальный AI-процессор
+[ LOCAL ]
+  raw/                 ← incoming documents after conversion to markdown
+  knowledge/           ← structured, extracted knowledge (the output)
+  Ollama (local LLM)   ← reads raw/, extracts JSON following the schema
 
-[ ГИБРИД ]
-  VS Code + Claude Code CLI  ← оркестратор
-  Obsidian                   ← UI / граф / поиск
-  Me / SA                    ← оператор: queries, challenge, new questions
+[ ORCHESTRATION ]
+  server.js            ← Node.js HTTP server: routes, prompts, settings
+  ui/index.html        ← single-file browser UI (no framework, inline JS)
+  scripts/*.sh         ← ingest / process / skill-building Bash scripts
 
-[ ОБЛАКО — только обезличенное ]
-  Claude API             ← глубокий архитектурный анализ
+[ CLOUD — optional, opt-in only ]
+  Claude API           ← deeper analysis on demand; can anonymize first
 ```
 
-### Структура vault
+---
+
+## Repository layout
 
 ```
-~/projects/second-brain/
-├── raw/
-│   ├── ARCH-001/        ← по номеру задачи в Jira
-│   │   └── 2026-04-30-ess-idm-auth-hld.md
-│   ├── ARCH-042/
-│   └── inbox/           ← входящее без тикета
+second-brain/
+├── raw/                      ← converted source docs, grouped by project (git-ignored)
 ├── knowledge/
-│   ├── projects/
-│   │   ├── ARCH-001/
-│   │   │   ├── stakeholders.md
-│   │   │   ├── risks.md
-│   │   │   ├── decisions.md
-│   │   │   └── open-questions.md
-│   │   └── ARCH-042/
-│   ├── stakeholders/    ← сквозные (между проектами)
-│   ├── risks/
-│   ├── decisions/
-│   └── patterns/        ← архитектурные паттерны
-├── references/          ← статьи, документация (не raw)
+│   └── projects/<project>/   ← extracted knowledge per project
+│       ├── concepts.md
+│       ├── models.md
+│       ├── datasets.md
+│       ├── experiments.md
+│       └── <project>-SKILL.md ← optional per-project extraction skill
+├── skills/                   ← reusable global skills (SKILL.md files)
+├── templates/                ← .md document templates for artifact generation
 ├── scripts/
-│   ├── ingest.sh        ← главный скрипт конвертации
-│   └── process.sh       ← запуск Ollama обработки
-└── CLAUDE.md            ← системный промпт для агента
+│   ├── ingest.sh             ← convert a folder of documents into raw/
+│   ├── process.sh            ← run the model over raw/ → knowledge/
+│   └── create_skill_*.sh     ← build a SKILL.md from knowledge or a PDF
+├── server.js                 ← Node.js server
+├── ui/index.html             ← browser UI
+└── CLAUDE.md                 ← the extraction schema (system prompt for the model)
 ```
 
 ---
 
-## Скрипт ingest.sh — что должен делать
+## The pipeline, step by step
 
-**Запуск**: `./scripts/ingest.sh ARCH-42 ~/path/to/folder`
+1. **Ingest** — `ingest.sh <project> <folder>` walks a folder and converts each file to markdown:
+   - `.pdf`, `.docx`, `.pptx` → `pandoc`
+   - images → `tesseract` OCR
+   - `.txt` → renamed to `.md`
 
-**Шаги**:
-1. Создать `raw/ARCH-42/` если не существует
-2. Рекурсивно обойти указанную папку
-3. Конвертировать по типу файла:
-   - `.pdf` → `pandoc` → `.md`
-   - `.docx`, `.pptx` → `pandoc` → `.md`
-   - `.txt` → переименовать в `.md`
-   - `.png`, `.jpg`, `.jpeg` → `tesseract` OCR → `.md`
-4. Добавить в каждый файл метаданные:
-   ```yaml
-   ---
-   source: оригинальный путь к файлу
-   jira: ARCH-42
-   date: 2026-04-30
-   processed: false
-   type: pdf|docx|image|txt
-   ---
-   ```
-5. Сохранить в `raw/ARCH-42/YYYY-MM-DD-originalname.md`
-6. Оригиналы не трогать, не перемещать, не удалять
+   Each converted file gets YAML frontmatter (`source`, `project`, `date`, `type`, `processed: false`) and lands in `raw/<project>/`. Originals are never moved or deleted.
 
-**Зависимости**: `pandoc`, `tesseract`, `imagemagick`
+2. **(Optional) Skill** — analyze the loaded docs to propose a `<project>-SKILL.md`, a short instruction telling the model what to look for in this domain.
+
+3. **Process** — `process.sh <project>` loads `CLAUDE.md` as the system prompt, then feeds each raw file to the local model. Large documents are split into chunks (sized to your RAM and model) with **full coverage** — nothing is dropped — and the per-file results are merged with ID de-duplication. The model returns JSON matching the schema, which is written into `knowledge/projects/<project>/`.
+
+4. **Use it** — ask questions across projects, generate document drafts from templates, or build diagrams from the knowledge base.
 
 ---
 
-## CLAUDE.md — системный промпт для Ollama
+## The schema (`CLAUDE.md`)
 
-```markdown
-# Knowledge Pipeline Instructions
+`CLAUDE.md` is the heart of the system: it is loaded verbatim as the model's system prompt (`scripts/process.sh`), and it defines the exact JSON the model must return. The default ML/AI schema captures **concepts, models, datasets, techniques, experiments, papers, open questions, resources** — each item carrying a `source: [[file]]` backlink so every claim is traceable.
 
-## Role
-You are a knowledge processor for a Solution Architect at a telecom IT company.
-Process files from raw/ and maintain structured knowledge base in knowledge/.
+**Editing `CLAUDE.md` is the main way you adapt the project to a new domain.** Change the categories and the few-shot example, and the whole pipeline follows.
 
-## Processing rules
-1. Read all .md files in raw/ where processed: false
-2. Extract entities:
-   - Stakeholders (name → role → project → interests)
-   - Risks (description → impact → mitigation → source)
-   - Decisions (what → why → alternatives rejected → source)
-   - Open questions (question → context → owner)
-3. Create or UPDATE corresponding files in knowledge/projects/{jira}/
-4. Every claim MUST have backlink [[source-file]] to raw/ origin
-5. If claim has no traceable source → mark as #hypothesis
-6. After processing → set processed: true in the raw/ file
-
-## Output format
-- Use Obsidian wiki-links: [[filename]]
-- Tags: #risk #stakeholder #decision #open-question #hypothesis
-- Language: Russian (same as source documents)
-
-## Privacy rule
-- Never include full names of individuals in knowledge/ files
-- Use roles instead: "Product Owner", "Security Lead", "CTO"
-- Codenames are acceptable: "Stakeholder-A"
-```
+Two rules in the schema are load-bearing:
+- **Traceability** — every item must cite its source file `[[name]]`.
+- **Epistemic honesty** — any claim with no traceable source is tagged `#hypothesis`, so facts and guesses stay separated.
 
 ---
 
-## Правило эпистемической честности
+## Skills
 
-> Если утверждение в `knowledge/` нельзя привязать к источнику в `raw/` — оно помечается `#hypothesis`, не как факт.
+A **skill** is a small `SKILL.md` that steers extraction toward a domain. Two scopes:
+- **Project skill** → `knowledge/projects/<project>/<project>-SKILL.md`, applied to one project; can be promoted to global.
+- **Global skill** → a file under `skills/`, available to any project. The built-in `knowledge-processor` (which *is* `CLAUDE.md`) is always present and read-only.
 
-Это ключевое правило системы. Факты vs предположения должны быть разделены.
-
----
-
-## Модель Ollama
-
-**Выбор**: `llama3.1:8b` — оптимум для M3 Pro 18GB
-
-```bash
-# Установка
-brew install ollama
-ollama pull llama3.1:8b
-
-# Проверка
-ollama run llama3.1:8b "Привет, отвечай по-русски"
-```
-
-При необходимости глубокого анализа (архитектурные паттерны, сложные запросы) — переключаться на Claude API вручную, передавая только обезличенный контент из `knowledge/`.
+Skills can be generated from a project's existing knowledge or from a PDF book/framework, then hand-edited. See [`skills/README.md`](skills/README.md).
 
 ---
 
-## Что в облако — никогда
+## Privacy model
 
-- Содержимое `raw/` (сырые рабочие материалы)
-- Имена сотрудников и заказчиков
-- Коммерческие условия и цифры
-- Архитектурные схемы с названиями систем заказчика
+Everything runs locally by default. Content is sent to the cloud **only** when you explicitly use the Claude API feature — and the app can anonymize it first.
 
-## Что в облако — можно
+| Stays local — always | May go to the cloud (when you opt in) |
+|---|---|
+| Raw source materials (`raw/`) | Anonymized, structured items from `knowledge/` |
+| Personal or sensitive names | Generic patterns with no identifying detail |
+| Commercial figures and terms | General questions ("how should I phrase this?") |
 
-- Обезличенные сущности из `knowledge/`
-- Архитектурные паттерны без привязки к заказчику
-- Общие вопросы типа "как лучше описать риск интеграции"
-
----
-
-## Порядок реализации
-
-### Шаг 1 — Окружение
-```bash
-brew install node pandoc tesseract imagemagick ollama
-npm install -g @anthropic/claude-code
-ollama pull llama3.1:8b
-```
-
-### Шаг 2 — Структура vault
-```bash
-mkdir -p ~/projects/second-brain/{raw/inbox,knowledge/{projects,stakeholders,risks,decisions,patterns},references,scripts}
-cd ~/projects/second-brain
-git init
-```
-
-### Шаг 3 — Obsidian
-Открыть `~/projects/second-brain/` как новый vault.
-
-### Шаг 4 — VS Code
-Открыть `~/projects/second-brain/` как проект.
-Установить расширение: Claude Code (Anthropic).
-
-### Шаг 5 — ingest.sh
-Написать и протестировать скрипт конвертации.
-Первый тест: папка `Presales/` (79 KB — маленькая, безопасно).
-
-### Шаг 6 — CLAUDE.md
-Создать системный промпт, протестировать на результатах Шага 5.
-
-### Шаг 7 — process.sh
-Скрипт запуска Ollama обработки `raw/` → `knowledge/`.
+If you plan to use the cloud features, keep sensitive material out of `knowledge/`.
 
 ---
 
-## Команды быстрого старта (итог)
+## Where to start reading the code
 
-```bash
-# Загрузить проект в базу знаний
-./scripts/ingest.sh ARCH-42 ~/path/to/project/folder
+- **`CLAUDE.md`** — the schema. Read this first; it defines the output.
+- **`scripts/process.sh`** — how a document becomes structured knowledge (chunking, prompting, merging).
+- **`server.js`** — the routes that the UI calls (settings, self-check, chat, artifact and diagram generation).
+- **`ui/index.html`** — the whole front end in one file (i18n, onboarding wizard, the views).
 
-# Запустить обработку Ollama
-./scripts/process.sh ARCH-42
-
-# Открыть базу знаний
-open ~/projects/second-brain  # в Obsidian
-code ~/projects/second-brain  # в VS Code
-```
-
----
-
-## Для нового чата — инструкция
-
-Скажи: *"Читай контекст из файла second-brain-architecture.md — мы реализуем этот проект. Начинаем с Шага 1."*
-
-Или вставь содержимое этого файла целиком как первое сообщение.
+No framework, no build — clone it, run `./start.sh`, and trace a single document through the pipeline to learn how it fits together.

@@ -211,18 +211,19 @@ source ~/.zshrc
 
 | Файл | Артефакт |
 |------|---------|
-| `HLD.md` | High Level Design |
-| `HLIS.md` | High Level Integration Specification |
-| `AN-Pre-Analysis.md` | Architectural Note Pre-Analysis |
-| `AN-Post-Analysis.md` | Architectural Note Post-Analysis |
-| `SPFA.md` | Software Product Full Assessment |
-| `BRD.md` | Business Requirements Document |
+| `Paper-Summary.md` | Конспект научной статьи |
+| `Concept-Note.md` | Заметка по концепции |
+| `Experiment-Log.md` | Журнал эксперимента |
+
+Эти шаблоны идут в комплекте для отрасли по умолчанию (**General ML/AI**).
+Если в мастере настройки выбрана другая отрасль — приложение попросит загрузить
+свои `.md` шаблоны.
 
 Шаблоны автоматически появляются в UI в разделе **◈ Генерация артефакта**.
 
 Новые шаблоны можно не писать вручную, а генерировать в разделе **◇ Шаблоны**:
-из структуры существующего документа (DOCX/PDF) или по ИТ-стандарту
-(TOGAF, BABOK, PMBOK, ISO).
+из структуры существующего документа (DOCX/PDF) или по стандарту для ML/AI
+(Model Cards, Datasheets for Datasets, CRISP-DM, ML reproducibility).
 
 ---
 
@@ -231,16 +232,16 @@ source ~/.zshrc
 ```
 ~/projects/second-brain/
 ├── raw/                   ← конвертированные документы (не в git)
-│   └── ARCH-123/
+│   └── ATTENTION-PAPERS/
 ├── knowledge/             ← база знаний (в git)
-│   └── projects/ARCH-123/
-│       ├── business-context.md
-│       ├── requirements.md
-│       ├── architecture.md
-│       ├── adrs.md
-│       ├── risks.md
+│   └── projects/ATTENTION-PAPERS/
+│       ├── concepts.md
+│       ├── models.md
+│       ├── datasets.md
+│       ├── techniques.md
+│       ├── experiments.md
+│       ├── papers.md
 │       ├── open-questions.md
-│       ├── stakeholders.md
 │       ├── diagram-objects.json   ← каталог объектов drawio
 │       └── diagrams/              ← сохранённые .drawio диаграммы
 ├── templates/             ← шаблоны артефактов
@@ -330,7 +331,7 @@ brew install plantuml          # macOS / Linux
 
 Или через терминал:
 ```bash
-./scripts/process_book.sh ~/Downloads/clean-architecture.pdf clean-architecture
+./scripts/process_book.sh ~/Downloads/deep-learning-book.pdf deep-learning
 ```
 
 Требует запущенного `ollama serve` и установленного `poppler` (для `pdftotext`).
@@ -341,10 +342,10 @@ brew install plantuml          # macOS / Linux
 
 Или через терминал:
 ```bash
-./scripts/create_skill_from_knowledge.sh ARCH-123
+./scripts/create_skill_from_knowledge.sh ATTENTION-PAPERS
 ```
 
-Скилл сохраняется в `skills/ARCH-123-domain/SKILL.md` и автоматически подхватывается CLAUDE.md.
+Скилл сохраняется в `skills/<project>-domain/SKILL.md` и автоматически подхватывается CLAUDE.md.
 
 ---
 
@@ -355,7 +356,7 @@ brew install plantuml          # macOS / Linux
 ### Ingest (конвертация документов)
 
 ```
-logs/ingest-ARCH-123-20260520_143012.log
+logs/ingest-ATTENTION-PAPERS-20260520_143012.log
 ```
 
 Что искать:
@@ -376,16 +377,16 @@ logs/ingest-ARCH-123-20260520_143012.log
 ### Process (обработка через Ollama)
 
 ```
-logs/process-ARCH-123-20260520_144500.log
+logs/process-ATTENTION-PAPERS-20260520_144500.log
 ```
 
 Что искать:
 ```
-[INFO] Используется скилл проекта: ARCH-123-SKILL.md
-[START-MODEL] file=spec.md doc_type=hld chars=7420 model=gemma3:12b num_ctx=12800
-[END-MODEL]   file=spec.md elapsed=45s response_len=2341
-[OK]   Создан: architecture.md
-[OK]   Обновлён: requirements.md
+[INFO] Используется скилл проекта: ATTENTION-PAPERS-SKILL.md
+[START-MODEL] file=paper.md doc_type=paper chars=7420 model=gemma3:12b num_ctx=12800
+[END-MODEL]   file=paper.md elapsed=45s response_len=2341
+[OK]   Создан: concepts.md
+[OK]   Обновлён: models.md
 [WARN] Гарблед контент (18% читаемых символов) — пропускаю: scan.md
 [TIMEOUT] file=big-doc.md elapsed=180s
 [DONE] ok=5 skip=2 err=1
@@ -451,7 +452,7 @@ lsof -i :3030   # порт занят?
 **Все ответы модели пустые или мусор:**
 ```bash
 # Проверь лог — ищи response_len=0 или json-extract error
-cat logs/process-ARCH-123-*.log | grep -E "TIMEOUT|json-extract|response_len=0"
+cat logs/process-ATTENTION-PAPERS-*.log | grep -E "TIMEOUT|json-extract|response_len=0"
 
 # Попробуй модель с поддержкой кириллицы
 ollama pull qwen2.5:7b

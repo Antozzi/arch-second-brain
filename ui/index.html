@@ -1087,7 +1087,7 @@
         </div>
         <div class="field">
           <label>Имя шаблона</label>
-          <input type="text" id="tmpl-std-name" placeholder="например: TOGAF-ADD" style="padding:7px 9px;font-size:12px">
+          <input type="text" id="tmpl-std-name" placeholder="например: Model-Card" style="padding:7px 9px;font-size:12px">
         </div>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="saveTemplate('std')" id="btn-tmpl-std-save">
@@ -1816,7 +1816,7 @@ async function sendChatClaude() {
   const kR = await fetch(API + '/knowledge/' + jira).catch(() => null);
   const knowledge = kR ? await kR.text().catch(() => '') : '';
 
-  var systemP = 'Ты Solution Architect в телеком IT-компании. Отвечаешь по-русски, конкретно, со ссылками на источники [[filename]] из базы знаний проекта.';
+  var systemP = 'Ты ассистент по ML/AI базе знаний. Отвечаешь на языке запроса, конкретно, со ссылками на источники [[filename]] из базы знаний проекта.';
   var userP = 'Проект: ' + jira + '\n\nБаза знаний:\n' + knowledge.slice(0, 12000) + '\n\nВопрос: ' + question;
 
   try {
@@ -2282,7 +2282,7 @@ async function generateArtifactClaude() {
   const knowledge = kR ? await kR.text().catch(() => '') : '';
 
   const sectionNote = state.selectedSection ? `Сфокусируйся на разделе: "${state.selectedSection}".` : '';
-  var systemPrompt = 'Ты опытный Solution Architect в телеком IT-компании. Работаешь по процессу EACMF. Помогаешь заполнять архитектурные артефакты: HLD, HLIS, AN, SPFA, BRD. Отвечаешь по-русски, конкретно, со ссылками на источники из базы знаний.';
+  var systemPrompt = 'Ты ассистент по ML/AI базе знаний. Помогаешь заполнять разделы документов (конспекты статей, заметки по концепциям, журналы экспериментов) на основе базы знаний. Отвечаешь на языке запроса, конкретно, со ссылками на источники из базы знаний.';
 
   var parts2 = ['Проект: ' + jira];
   if (sectionNote) parts2.push(sectionNote);

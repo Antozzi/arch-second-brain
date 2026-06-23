@@ -1,5 +1,32 @@
 # Release Notes
 
+## Evil's Fight — 2026-06-23
+
+The big pivot: Second Brain is now an **educational template** for building your first local, agentic AI application. The telecom/architecture framing is gone; the worked example is **ML/AI study notes**, and everything is built to be retargeted to your own domain.
+
+### Repurposed as a learning project
+- **New extraction schema** (`CLAUDE.md`): concepts, models, datasets, techniques, experiments, papers, open questions, resources — replacing the old architecture artifacts.
+- **Generic templates** replace the EACMF set: `Paper-Summary`, `Concept-Note`, `Experiment-Log`.
+- **ML/AI framework presets** for template generation (Model Cards, Datasheets for Datasets, CRISP-DM, ML reproducibility) replace TOGAF/BABOK/PMBOK.
+- **Example skill** `ml-paper-domain` replaces the prior domain skills; all legacy skills removed.
+- Server prompts, scripts, and UI strings de-telecomed throughout.
+
+### Onboarding for newcomers
+- **First-run setup wizard**: environment self-check → language → industry → model, so a new user is never lost.
+- **Installation self-check** (`/api/selfcheck`) verifies the host has every component from `INSTALLATION.md`, with per-component fix hints.
+- Inline tips and clearer empty states across the flow.
+
+### Bilingual interface
+- **EN / RU** language toggle in the header (persists to settings); the UI defaults to your browser language.
+
+### Industry-aware knowledge base
+- Pick an **industry** at setup; it seeds the domain framing used in extraction prompts. The default *General ML/AI* ships with templates; other industries prompt you to upload your own `.md` templates.
+
+### Docs
+- Rewrote `README.md` as a friendly, English, step-by-step guide to the pipeline.
+
+---
+
 ## MortalCombat2 — 2026-05-21
 
 Релиз про слабое железо и надёжность создания скиллов.

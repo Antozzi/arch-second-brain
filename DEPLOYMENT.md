@@ -130,12 +130,12 @@ logs/process-ARCH-123-20260520_144500.log
 Ключевые маркеры:
 
 ```
-[INFO] Используется скилл проекта: ARCH-123-SKILL.md
-[FILE-CHUNKS] file=spec.md chunks=9 doc_type=hld
-[START-MODEL] file=spec.md chunk=1/9 doc_type=hld chars=10000 model=gemma3:12b num_ctx=12288
-[END-MODEL]   file=spec.md chunk=1/9 elapsed=60s response_len=2341
-[OK]   Создан: architecture.md
-[OK]   Обновлён: requirements.md
+[INFO] Используется скилл проекта: ATTENTION-PAPERS-SKILL.md
+[FILE-CHUNKS] file=paper.md chunks=9 doc_type=paper
+[START-MODEL] file=paper.md chunk=1/9 doc_type=paper chars=10000 model=gemma3:12b num_ctx=12288
+[END-MODEL]   file=paper.md chunk=1/9 elapsed=60s response_len=2341
+[OK]   Создан: concepts.md
+[OK]   Обновлён: models.md
 [INFO] Файл готов: успешно 9/9 чанков
 [WARN] Гарблед контент (18% читаемых символов) — пропускаю: scan.md
 [TIMEOUT] file=big-doc.md chunk=4/9 elapsed=180s
@@ -223,7 +223,7 @@ ollama pull qwen2.5:7b
 
 При обработке `process.sh` сам переключится на кириллическую модель, если она
 установлена (`[WARN] ... авто-переключение на qwen2.5:7b` в логе). Проверить
-долю кириллицы: `GET /api/cyrillic-check/<JIRA>`.
+долю кириллицы: `GET /api/cyrillic-check/<project>`.
 
 ### Claude API ошибка
 
@@ -265,8 +265,8 @@ A -> B: test
   его автоматически, но если объектов `0` — открой файл в diagrams.net и пересохрани как
   **Uncompressed**.
 
-Каталог объектов проекта: `knowledge/projects/<JIRA>/diagram-objects.json`,
-сохранённые диаграммы: `knowledge/projects/<JIRA>/diagrams/`.
+Каталог объектов проекта: `knowledge/projects/<project>/diagram-objects.json`,
+сохранённые диаграммы: `knowledge/projects/<project>/diagrams/`.
 
 ### Windows: bash-скрипты не работают
 
