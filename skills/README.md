@@ -13,4 +13,4 @@
 ## Скиллы
 | Файл | Источник | Домен |
 |------|----------|-------|
-| [arch-izi-domain](arch-izi-domain/SKILL.md) | Документы проекта ARCH-IZI | Интеграция MVNO IZI с DBSS (VEON) |
+| [arch-mvno-domain](arch-mvno-domain/SKILL.md) | Документы проекта ARCH-MVNO | Интеграция MVNO с DBSS (VEON) |

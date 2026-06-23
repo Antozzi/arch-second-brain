@@ -1,7 +1,7 @@
-# arch-izi-domain
+# arch-mvno-domain
 
 ## WHEN_TO_USE
-Подгружай этот скилл, когда документ относится к проекту ARCH-IZI: описывает Use Cases (UC) и Knowledge Zones (KZ) для интеграции MVNO IZI с DBSS в рамках VEON.
+Подгружай этот скилл, когда документ относится к проекту ARCH-MVNO: описывает Use Cases (UC) и Knowledge Zones (KZ) для интеграции MVNO с DBSS в рамках VEON.
 
 ## CORE_CONCEPTS
 - **Use Case (UC)** — сценарий использования, описанный в таблицах документа.
