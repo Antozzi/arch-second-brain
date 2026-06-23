@@ -1,8 +1,6 @@
 .obsidian/
 .DS_Store
 .env
-.env
-.DS_Store
 raw/*
 !raw/.gitkeep
 knowledge/projects/*
