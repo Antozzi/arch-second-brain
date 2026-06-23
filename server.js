@@ -55,6 +55,58 @@ function computeAutoMaxChars(model) {
 
 const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text/css', '.json':'application/json' };
 
+// Выбранная отрасль для ML/AI базы знаний (Generic по умолчанию).
+function industryLabel() { return (ENV.INDUSTRY || '').trim(); }
+function industryNote() {
+  const ind = industryLabel();
+  return ind && ind.toLowerCase() !== 'generic' ? ` в контексте отрасли «${ind}»` : '';
+}
+
+// Проверка наличия CLI-инструмента (self-check установки).
+function probeCmd(cmd) {
+  return new Promise((resolve) => {
+    exec(cmd, { timeout: 6000 }, (err, stdout, stderr) => {
+      const out = ((stdout || '') + (stderr || '')).trim().split('\n')[0] || '';
+      resolve({ ok: !err, out });
+    });
+  });
+}
+
+// Список компонентов согласно INSTALLATION.md. required=true — без него pipeline не работает.
+const SELFCHECK_COMPONENTS = [
+  { id: 'node',       label: 'Node.js 18+',        cmd: 'node --version',        required: true,  hint: 'Установи Node.js 18+ (brew install node / winget OpenJS.NodeJS / apt install nodejs)' },
+  { id: 'pandoc',     label: 'pandoc',             cmd: 'pandoc --version',      required: true,  hint: 'brew install pandoc / winget JohnMacFarlane.Pandoc / apt install pandoc' },
+  { id: 'tesseract',  label: 'tesseract (OCR)',    cmd: 'tesseract --version',   required: false, hint: 'Нужен для OCR изображений. brew install tesseract' },
+  { id: 'imagemagick',label: 'imagemagick',        cmd: 'magick --version || convert --version', required: false, hint: 'Нужен для обработки изображений. brew install imagemagick' },
+  { id: 'poppler',    label: 'poppler (pdftotext)',cmd: 'pdftotext -v',          required: false, hint: 'Нужен для PDF. brew install poppler / choco install poppler / apt install poppler-utils' },
+  { id: 'jq',         label: 'jq',                 cmd: 'jq --version',          required: false, hint: 'brew install jq / winget jqlang.jq / apt install jq' },
+  { id: 'java',       label: 'Java (PlantUML)',    cmd: 'java -version',         required: false, hint: 'Нужен для рендеринга диаграмм. brew install openjdk / apt install default-jdk' },
+  { id: 'claude',     label: 'Claude Code CLI',    cmd: 'claude --version',      required: false, hint: 'npm install -g @anthropic-ai/claude-code (опционально)' },
+  { id: 'gh',         label: 'GitHub CLI',         cmd: 'gh --version',          required: false, hint: 'Опционально, для публикации в GitHub. https://cli.github.com' }
+];
+
+async function runSelfCheck() {
+  const results = [];
+  for (const c of SELFCHECK_COMPONENTS) {
+    const r = await probeCmd(c.cmd);
+    results.push({ id: c.id, label: c.label, required: c.required, ok: r.ok, detail: r.ok ? r.out : 'не найден', hint: c.ok ? '' : c.hint });
+  }
+  // Ollama: сервер + наличие выбранной модели
+  let ollamaServer = false, models = [], modelOk = false;
+  const wantModel = ENV.OLLAMA_MODEL || 'llama3.1:8b';
+  try {
+    const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(4000) });
+    if (r.ok) { ollamaServer = true; models = ((await r.json()).models || []).map(m => m.name); }
+  } catch {}
+  modelOk = models.some(m => m === wantModel || m.split(':')[0] === wantModel.split(':')[0]);
+  results.push({ id: 'ollama-cli', label: 'ollama', required: true, ...(await probeCmd('ollama --version').then(r => ({ ok: r.ok, detail: r.ok ? r.out : 'не найден', hint: r.ok ? '' : 'brew install ollama / winget Ollama.Ollama / curl -fsSL https://ollama.com/install.sh | sh' }))) });
+  results.push({ id: 'ollama-server', label: 'Ollama сервер (:11434)', required: true, ok: ollamaServer, detail: ollamaServer ? 'запущен' : 'не отвечает', hint: ollamaServer ? '' : 'Запусти: ollama serve' });
+  results.push({ id: 'ollama-model', label: `Модель ${wantModel}`, required: true, ok: modelOk, detail: modelOk ? 'загружена' : (models.length ? 'есть другие: ' + models.join(', ') : 'нет моделей'), hint: modelOk ? '' : `Загрузи: ollama pull ${wantModel}` });
+
+  const requiredFail = results.filter(r => r.required && !r.ok).length;
+  return { ok: requiredFail === 0, requiredFail, components: results };
+}
+
 const activeProcesses = new Map(); // key: 'ingest-JIRA' | 'process-JIRA' → child
 
 // Windows: add common tool paths to process PATH so bash scripts can find pandoc, tesseract, etc.
@@ -293,7 +345,7 @@ async function buildSkillFromText(skillName, sourceLabel, text, log) {
   const ctx = String(text || '').slice(0, 12000);
   if (!ctx.trim()) throw new Error('пустой контент для скилла');
   const today = new Date().toISOString().slice(0, 10);
-  const prompt = `Ты извлекаешь доменную экспертизу из документов Confluence для создания AI-скилла.
+  const prompt = `Ты извлекаешь предметную экспертизу из документа для создания AI-скилла${industryNote()}.
 
 Источник: ${sourceLabel}
 
@@ -301,8 +353,8 @@ async function buildSkillFromText(skillName, sourceLabel, text, log) {
 ${ctx}
 
 ---
-Твоя задача — извлечь ПРЕДМЕТНУЮ ЭКСПЕРТИЗУ (domain knowledge), не архитектурные паттерны.
-Фокус: что это за система/технология/домен, как работает, какие правила предметной области.
+Твоя задача — извлечь ПРЕДМЕТНУЮ ЭКСПЕРТИЗУ (domain knowledge): ключевые понятия, методы и правила домена,
+которые помогут модели лучше извлекать структурированные знания из похожих документов.
 Создай SKILL.md. Верни ТОЛЬКО markdown без пояснений.
 
 # SKILL: ${skillName}
@@ -311,23 +363,17 @@ ${ctx}
 Одно предложение — суть предметной области.
 
 ## WHEN_TO_USE
-- [когда этот скилл нужен при заполнении документов]
-- [триггеры: упоминание конкретных систем, технологий, терминов]
+- [когда этот скилл нужен при обработке документов]
+- [триггеры: упоминание конкретных понятий, методов, терминов]
 
 ## DOMAIN_CONTEXT
-Краткое описание предметной области: что за системы, для чего, кто использует.
+Краткое описание предметной области: о чём она, ключевые объекты, как связаны.
 
 ## CORE_CONCEPTS
-- **[Термин/система]**: [определение в 1 строку из контента]
-
-## BUSINESS_RULES
-- [Правило предметной области из контента]
+- **[Термин/понятие]**: [определение в 1 строку из контента]
 
 ## DECISION_RULES
-- Если [ситуация в этом домене] → [как поступать]
-
-## INTEGRATION_POINTS
-- [Система A] ↔ [Система B]: [суть взаимодействия]
+- Если [ситуация в этом домене] → [как извлекать/трактовать]
 
 ## ANTI_PATTERNS
 - ❌ [Типичная ошибка]: [почему неправильно]
@@ -360,7 +406,7 @@ ${ctx}
   const readme = join(__dirname, 'skills', 'README.md');
   if (existsSync(readme)) {
     writeFileSync(readme, readFileSync(readme, 'utf8').replace(/\s*$/, '') +
-      `\n| ${skillName}/SKILL.md | Confluence: ${sourceLabel} | ${today} |\n`);
+      `\n| ${skillName}/SKILL.md | ${sourceLabel} | ${today} |\n`);
   }
   return content;
 }
@@ -820,7 +866,7 @@ const server = createServer(async (req, res) => {
       if (!existsSync(fp)) return json(res, { error: 'файл не найден' }, 404);
       const docBody = stripFrontmatter(readFileSync(fp, 'utf8'));
       const headings = [...docBody.matchAll(/^#{1,6} +(.+)$/gm)].map(m => m[1].trim());
-      const sys = 'Ты помогаешь Solution Architect создавать переиспользуемые .md шаблоны архитектурных артефактов.';
+      const sys = 'Ты помогаешь создавать переиспользуемые .md шаблоны для структурирования знаний.';
       const userMsg = `Из документа-образца ниже извлеки СТРУКТУРУ и верни переиспользуемый MARKDOWN-ШАБЛОН.
 
 ПРАВИЛА:
@@ -971,11 +1017,11 @@ ${docBody.slice(0, 9000)}`;
         if (c) context += `\n\n=== Проект ${j} ===\n${c}`;
       }
       const projectLabel = projectList.join(', ');
-      const prompt = `Ты архитектурный ассистент Solution Architect в телеком IT-компании.
+      const prompt = `Ты ассистент по ML/AI базе знаний${industryNote()}.
 Используй ТОЛЬКО информацию из базы знаний проектов: ${projectLabel}.
 
 ПРАВИЛА ОТВЕТА:
-- Отвечай по-русски, структурированно
+- Отвечай на языке вопроса, структурированно
 - Используй заголовки если ответ длинный
 - Ссылайся на источники: [[filename]]
 - Если информации нет в базе — прямо скажи об этом
@@ -1014,7 +1060,7 @@ ${context.slice(0, 14000)}
       const tmplPath = template ? join(__dirname, 'templates', template + '.md') : null;
       const tmplContent = (tmplPath && existsSync(tmplPath)) ? readFileSync(tmplPath, 'utf8').slice(0, 3000) : '';
       const sectionNote = section ? `Сфокусируйся на разделе: "${section}".` : 'Заполни все разделы шаблона.';
-      const prompt = `Ты Solution Architect. На основе базы знаний проектов ${projectLabel} помоги заполнить архитектурный документ.\n\n${sectionNote}\n\nШаблон документа:\n${tmplContent}\n\nБаза знаний:\n${context.slice(0, 10000)}\n\nСгенерируй контент для указанного раздела на основе знаний из базы. Отвечай по-русски. Если данных недостаточно — укажи что именно нужно уточнить.`;
+      const prompt = `Ты ассистент по ML/AI базе знаний${industryNote()}. На основе базы знаний проектов ${projectLabel} помоги заполнить документ по шаблону.\n\n${sectionNote}\n\nШаблон документа:\n${tmplContent}\n\nБаза знаний:\n${context.slice(0, 10000)}\n\nСгенерируй контент для указанного раздела на основе знаний из базы. Отвечай на языке шаблона. Если данных недостаточно — укажи что именно нужно уточнить.`;
       cors(res); res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' });
       try {
         const r = await fetch('http://localhost:11434/api/generate', {
@@ -1048,7 +1094,7 @@ ${context.slice(0, 14000)}
         if (c) context += `\n\n=== Проект ${j} ===\n${c}`;
       }
       const task = (userPrompt && userPrompt.trim()) || 'Построй диаграмму на основе ключевой информации из базы знаний.';
-      const sys = 'Ты Solution Architect. Ты строишь диаграммы PlantUML по базе знаний проектов.';
+      const sys = 'Ты ассистент по базе знаний. Ты строишь диаграммы PlantUML по базе знаний проектов.';
       const userMsg = `Тип диаграммы: ${spec.label}
 Правила синтаксиса PlantUML: ${spec.hint}
 
@@ -1137,8 +1183,8 @@ ${context.slice(0, 11000)}`;
       const catalogNote = catalog.length
         ? `\n\nКАТАЛОГ СУЩЕСТВУЮЩИХ ОБЪЕКТОВ ПРОЕКТА (если объект подходит — ПЕРЕИСПОЛЬЗУЙ его "id" и "label" дословно, чтобы диаграммы были согласованы):\n${catalog.map(o => `- id="${o.id}" label="${o.label}" type=${o.type}`).join('\n')}`
         : '';
-      const task = (userPrompt && userPrompt.trim()) || 'Построй диаграмму архитектуры на основе ключевой информации из базы знаний.';
-      const sys = 'Ты Solution Architect. Ты проектируешь архитектурные диаграммы и возвращаешь их в виде строгого JSON.';
+      const task = (userPrompt && userPrompt.trim()) || 'Построй диаграмму на основе ключевой информации из базы знаний.';
+      const sys = 'Ты ассистент по базе знаний. Ты проектируешь диаграммы и возвращаешь их в виде строгого JSON.';
       const userMsg = `ЗАДАЧА: ${task}
 
 Верни ТОЛЬКО JSON такого вида (без markdown-ограждений, без текста до/после):
@@ -1450,6 +1496,11 @@ ${context.slice(0, 11000)}`;
       }
     }
 
+    // GET /api/selfcheck — проверка установленных компонентов на хосте
+    if (req.method === 'GET' && url.pathname === '/api/selfcheck') {
+      return json(res, await runSelfCheck());
+    }
+
     // GET /api/settings
     if (req.method === 'GET' && url.pathname === '/api/settings') {
       const ollamaModel = ENV.OLLAMA_MODEL || 'llama3.1:8b';
@@ -1472,7 +1523,9 @@ ${context.slice(0, 11000)}`;
           hasConfluenceToken: !!ENV.CONFLUENCE_API_TOKEN,
           hasJiraToken: !!ENV.JIRA_API_TOKEN
         },
-        anonymize: (ENV.ANONYMIZE || 'off').toLowerCase()
+        anonymize: (ENV.ANONYMIZE || 'off').toLowerCase(),
+        industry: ENV.INDUSTRY || 'Generic',
+        uiLang: ENV.UI_LANG || ''
       });
     }
 
@@ -1495,7 +1548,7 @@ ${context.slice(0, 11000)}`;
       let lines = existsSync(envPath) ? readFileSync(envPath, 'utf8').split('\n').filter(Boolean) : [];
       const allowed = ['ANTHROPIC_API_KEY', 'CLAUDE_MODEL', 'OLLAMA_MODEL', 'MAX_CHARS',
         'ATLASSIAN_DEPLOYMENT', 'ATLASSIAN_EMAIL', 'CONFLUENCE_BASE_URL', 'CONFLUENCE_API_TOKEN',
-        'JIRA_BASE_URL', 'JIRA_API_TOKEN', 'ANONYMIZE'];
+        'JIRA_BASE_URL', 'JIRA_API_TOKEN', 'ANONYMIZE', 'INDUSTRY', 'UI_LANG'];
       Object.entries(body).forEach(([k, v]) => {
         if (!allowed.includes(k)) return;
         if (k === 'MAX_CHARS' && v === '') {
@@ -1555,7 +1608,7 @@ ${context.slice(0, 11000)}`;
       const payload = JSON.stringify({
         model: ENV.CLAUDE_MODEL || 'claude-sonnet-4-6',
         max_tokens: max_tokens || 8000,
-        system: outSystem || 'Ты Solution Architect. Отвечай по-русски.',
+        system: outSystem || 'Ты ассистент по ML/AI базе знаний. Отвечай на языке запроса.',
         messages: [{ role: 'user', content: outPrompt }]
       });
 
