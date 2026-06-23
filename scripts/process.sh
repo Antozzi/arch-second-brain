@@ -125,11 +125,11 @@ curl -s --max-time 5 "$OLLAMA_URL" > /dev/null 2>&1 || { err "Ollama не зап
 mkdir -p "$KNOWLEDGE_JIRA"
 
 # --- system prompt: композиция слоёв ---
-# 1) SA-база — CLAUDE.md (встроенный скилл knowledge-processor, JSON-схема извлечения) — всегда
+# 1) база — CLAUDE.md (встроенный скилл knowledge-processor, JSON-схема извлечения) — всегда
 # 2) скилл проекта <JIRA>-SKILL.md — если есть
 # 3) доменные скиллы из skills/ — выбор пользователя через env DOMAIN_SKILLS (через запятую)
 SYSTEM_PROMPT="$(tr -d '\r' < "$CLAUDE_MD")"
-info "SA-база: CLAUDE.md (knowledge-processor)"
+info "База: CLAUDE.md (knowledge-processor)"
 
 SKILL_FILE="$KNOWLEDGE_JIRA/${JIRA}-SKILL.md"
 if [[ -f "$SKILL_FILE" ]]; then
@@ -195,7 +195,7 @@ except: print('no')
   fi
 fi
 
-# system prompt теперь крупнее (SA-база + скиллы) — расширяем контекст под него
+# system prompt теперь крупнее (база + скиллы) — расширяем контекст под него
 SYS_CHARS="${#SYSTEM_PROMPT}"
 NUM_CTX=$(( (MAX_CHARS + SYS_CHARS / 2 + 2048 + 511) / 512 * 512 ))
 info "Контекст модели (num_ctx): ${NUM_CTX} токенов (system ~${SYS_CHARS} симв.)"
@@ -232,12 +232,12 @@ call_ollama_single() {
   local ref="$2"
   local doc_type="$3"
 
-  # system prompt уже содержит SA-схему (CLAUDE.md) + скиллы — извлекаем строго по ней
+  # system prompt уже содержит схему (CLAUDE.md) + скиллы — извлекаем строго по ней
   local prompt
   prompt="Извлеки знания ТОЛЬКО из текста документа ниже, строго следуя JSON-схеме из system prompt.
 НЕ генерируй информацию из других источников — только то, что явно присутствует в тексте.
 Если данных для категории нет — верни пустой массив [].
-Используй роли людей, не имена.
+Не включай личные данные непубличных лиц.
 Верни ТОЛЬКО валидный JSON, без пояснений и markdown-блоков.
 
 ДОКУМЕНТ ($ref, тип: $doc_type):
@@ -458,9 +458,9 @@ PYEOF
 detect_doc_type() {
   local name
   name="$(basename "$1" | tr '[:upper:]' '[:lower:]')"
-  echo "$name" | grep -qi "spfa\|feasibility\|vendor\|assessment" && echo "spfa" && return
-  echo "$name" | grep -qi "hld\|high.level" && echo "hld" && return
-  echo "$name" | grep -qi "bazaar\|справка\|an-" && echo "an" && return
+  echo "$name" | grep -qi "paper\|arxiv\|preprint" && echo "paper" && return
+  echo "$name" | grep -qi "\.ipynb\|notebook" && echo "notebook" && return
+  echo "$name" | grep -qi "notes\|lecture\|chapter" && echo "notes" && return
   echo "generic"
 }
 
@@ -479,7 +479,7 @@ while IFS= read -r -d '' filepath; do
   fi
 
   if is_noise "$filepath"; then
-    info "[$CURRENT/$TOTAL] Пропускаю (не архитектурный): $filename"
+    info "[$CURRENT/$TOTAL] Пропускаю (служебный файл): $filename"
     mark_processed "$filepath"
     ((COUNT_SKIP++))
     continue

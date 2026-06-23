@@ -755,11 +755,11 @@ function extractJson(text) {
 // =============================================================================
 
 const STANDARDS = {
-  TOGAF:       { label: 'TOGAF 10 — Enterprise Architecture', artifacts: ['Architecture Vision', 'Architecture Definition Document', 'Architecture Requirements Specification', 'Architecture Roadmap', 'Architecture Building Blocks'] },
-  'ISO-42010': { label: 'ISO/IEC/IEEE 42010 — Architecture Description', artifacts: ['Architecture Description', 'Stakeholders & Concerns', 'Architecture Viewpoints', 'Architecture Views'] },
-  BABOK:       { label: 'BABOK v3 — Business Analysis', artifacts: ['Business Analysis Plan', 'Requirements Documentation', 'Stakeholder Analysis', 'Solution Assessment', 'Elicitation Results'] },
-  PMBOK:       { label: 'PMBOK 7 — Project Management', artifacts: ['Project Charter', 'Project Management Plan', 'Risk Register', 'Stakeholder Register', 'Scope Statement'] },
-  'ISO-25010': { label: 'ISO/IEC 25010 — Quality Requirements (NFR)', artifacts: ['Quality Requirements Specification', 'NFR Checklist'] },
+  'MODEL-CARD': { label: 'Model Cards (Mitchell et al., 2019)', artifacts: ['Model Details', 'Intended Use', 'Factors', 'Metrics', 'Evaluation Data', 'Training Data', 'Ethical Considerations', 'Caveats & Recommendations'] },
+  'DATASHEET':  { label: 'Datasheets for Datasets (Gebru et al., 2018)', artifacts: ['Motivation', 'Composition', 'Collection Process', 'Preprocessing / Cleaning', 'Uses', 'Distribution', 'Maintenance'] },
+  'CRISP-DM':   { label: 'CRISP-DM — Data Mining Process', artifacts: ['Business Understanding', 'Data Understanding', 'Data Preparation', 'Modeling', 'Evaluation', 'Deployment'] },
+  'ML-REPRO':   { label: 'ML Reproducibility Checklist', artifacts: ['Model & Algorithm Description', 'Dataset Description', 'Compute & Environment', 'Hyperparameters', 'Evaluation Metrics', 'Code & Data Availability'] },
+  'EXPERIMENT': { label: 'Experiment Report', artifacts: ['Hypothesis', 'Setup', 'Procedure', 'Results', 'Analysis', 'Next Steps'] },
 };
 
 function stripFrontmatter(text) {
@@ -891,7 +891,7 @@ ${docBody.slice(0, 9000)}`;
       const std = STANDARDS[standard];
       if (!std) return json(res, { error: 'неизвестный стандарт' }, 400);
       if (!artifact) return json(res, { error: 'artifact обязателен' }, 400);
-      const sys = 'Ты эксперт по ИТ-стандартам и методологиям (TOGAF, BABOK, PMBOK, ISO). Ты создаёшь переиспользуемые .md шаблоны артефактов.';
+      const sys = 'Ты эксперт по ML/AI-практикам и фреймворкам (Model Cards, Datasheets for Datasets, CRISP-DM, ML reproducibility). Ты создаёшь переиспользуемые .md шаблоны артефактов.';
       const userMsg = `Собери переиспользуемый MARKDOWN-ШАБЛОН артефакта "${artifact}" по стандарту "${std.label}".
 
 ПРАВИЛА:

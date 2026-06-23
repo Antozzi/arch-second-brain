@@ -1,16 +1,17 @@
 # Skills
 
-Дистиллированная экспертиза для Claude Code.
-Каждый скилл — это SKILL.md, созданный из книги, фреймворка или личного опыта.
+Distilled expertise for the pipeline. / Дистиллированная экспертиза для пайплайна.
+Each skill is a SKILL.md that steers the model toward better, domain-specific extraction.
+Каждый скилл — это SKILL.md, который направляет модель на более точное извлечение знаний в своём домене.
 
-## Структура скилла
-- WHEN_TO_USE — когда Claude подгружает этот скилл
-- CORE_CONCEPTS — ключевые понятия
-- DECISION_RULES — если X → делай Y
-- PLAYBOOKS — пошаговые алгоритмы
-- ANTI_PATTERNS — чего избегать
+## Skill structure / Структура скилла
+- WHEN_TO_USE — when the model loads this skill / когда подгружать скилл
+- CORE_CONCEPTS — key concepts / ключевые понятия
+- DECISION_RULES — if X → do Y / если X → делай Y
+- PLAYBOOKS — step-by-step / пошаговые алгоритмы
+- ANTI_PATTERNS — what to avoid / чего избегать
 
-## Скиллы
-| Файл | Источник | Домен |
-|------|----------|-------|
-| [arch-mvno-domain](arch-mvno-domain/SKILL.md) | Документы проекта ARCH-MVNO | Интеграция MVNO с DBSS (VEON) |
+## Skills / Скиллы
+| File | Source | Domain |
+|------|--------|--------|
+| [ml-paper-domain](ml-paper-domain/SKILL.md) | Example (built-in) | ML/AI research papers |
