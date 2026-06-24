@@ -475,6 +475,7 @@
 
 <aside class="sidebar">
   <div class="logo" onclick="showView('ingest')" style="cursor:pointer" title="На главную">Second<span>Brain</span></div>
+  <div id="app-release" style="font-size:10px;color:var(--text3);margin:-8px 0 12px 2px;letter-spacing:0.3px"></div>
 
   <div class="nav-section">
     <div class="nav-label">Навигация</div>
@@ -3144,6 +3145,9 @@ async function applyGlobalSkill() {
 // ============================================================
 // i18n (EN/RU) + first-run onboarding wizard — educational template
 // ============================================================
+// Version mask: <Major>.<minor>.<small change>, counted from the first release.
+const APP_VERSION = '2.1.0';
+const APP_RELEASE = 'Lame fighter 2';
 const I18N = {
   ru: {
     nav_section:'Навигация', projects_section:'Проекты',
@@ -3153,25 +3157,28 @@ const I18N = {
     wiz_welcome_title:'Добро пожаловать в Second Brain',
     wiz_welcome_sub:'Локальный AI-пайплайн: документы → структурированные знания → переиспользуемый контекст. Пройдём настройку за 4 шага.',
     wiz_step:'Шаг', wiz_of:'из',
-    wiz_check_title:'1. Проверка окружения',
+    wiz_check_title:'Проверка окружения',
     wiz_check_sub:'Проверяем, что на компьютере установлены нужные компоненты (см. INSTALLATION.md).',
     wiz_check_run:'Проверить снова', wiz_check_ok:'Всё готово — обязательные компоненты на месте.',
     wiz_check_fail:'Не хватает обязательных компонентов — установи их и нажми «Проверить снова».',
-    wiz_lang_title:'2. Язык интерфейса', wiz_lang_sub:'Можно сменить в любой момент кнопкой в шапке.',
-    wiz_ind_title:'3. Отрасль базы знаний',
+    wiz_lang_title:'Язык интерфейса', wiz_lang_sub:'Можно сменить в любой момент кнопкой в шапке.',
+    wiz_ind_title:'Отрасль базы знаний',
     wiz_ind_sub:'Под какую отрасль собираем ML/AI базу знаний. По умолчанию — общий ML/AI с готовыми шаблонами.',
     wiz_ind_upload:'Для выбранной отрасли встроенных шаблонов нет — загрузи свои .md шаблоны на вкладке «Шаблоны».',
-    wiz_models_title:'5. Модель', wiz_models_sub:'Локальная модель Ollama обязательна. Claude API — опционально (глубокий анализ).',
+    wiz_models_title:'Модель', wiz_models_sub:'Локальная модель Ollama обязательна. Claude API — опционально (глубокий анализ).',
     wiz_back:'Назад', wiz_next:'Далее', wiz_finish:'Готово', wiz_skip:'Пропустить',
     req:'обязательно', opt:'опционально', checking:'проверяю…',
-    wiz_overview_title:'1. Что умеет приложение',
+    wiz_overview_title:'Что умеет приложение',
     wiz_overview_sub:'Коротко о пути от документа к переиспользуемым знаниям.',
     wiz_ov1:'① Загрузи документы в проект (PDF, Word, картинки…) — вкладка «Загрузить проект».',
     wiz_ov2:'② По желанию настрой скилл проекта — короткую инструкцию, что извлекать.',
     wiz_ov3:'③ Запусти обработку — локальная модель превращает документы в структурированные знания.',
     wiz_ov4:'④ Пользуйся: спрашивай модель, генерируй документы и диаграммы, собирай свои скиллы.',
     vhelp_tag:'Подсказка по экрану', vhelp_ok:'Понятно',
-    vhelp_off:'Не показывать подсказки автоматически', vhelp_help_btn:'Подсказка по этому экрану'
+    vhelp_off:'Не показывать подсказки автоматически', vhelp_help_btn:'Подсказка по этому экрану',
+    tut_btn:'Обучение', tut_welcome_title:'Обучение — как пользоваться приложением',
+    tut_welcome_sub:'Короткий тур по экранам. Листай «Далее», чтобы узнать, что где находится.',
+    tut_overview_title:'Что умеет приложение', tut_close:'Закрыть'
   },
   en: {
     nav_section:'Navigation', projects_section:'Projects',
@@ -3181,25 +3188,28 @@ const I18N = {
     wiz_welcome_title:'Welcome to Second Brain',
     wiz_welcome_sub:'A local AI pipeline: documents → structured knowledge → reusable context. Let\'s set it up in 4 steps.',
     wiz_step:'Step', wiz_of:'of',
-    wiz_check_title:'1. Environment check',
+    wiz_check_title:'Environment check',
     wiz_check_sub:'Verifying the required components are installed on this machine (see INSTALLATION.md).',
     wiz_check_run:'Re-check', wiz_check_ok:'All set — required components are present.',
     wiz_check_fail:'Some required components are missing — install them and click Re-check.',
-    wiz_lang_title:'2. Interface language', wiz_lang_sub:'You can switch any time from the header button.',
-    wiz_ind_title:'3. Knowledge-base industry',
+    wiz_lang_title:'Interface language', wiz_lang_sub:'You can switch any time from the header button.',
+    wiz_ind_title:'Knowledge-base industry',
     wiz_ind_sub:'Which industry this ML/AI knowledge base targets. Default is general ML/AI with ready-made templates.',
     wiz_ind_upload:'No built-in templates for this industry — upload your own .md templates on the Templates tab.',
-    wiz_models_title:'5. Model', wiz_models_sub:'A local Ollama model is required. Claude API is optional (deep analysis).',
+    wiz_models_title:'Model', wiz_models_sub:'A local Ollama model is required. Claude API is optional (deep analysis).',
     wiz_back:'Back', wiz_next:'Next', wiz_finish:'Done', wiz_skip:'Skip',
     req:'required', opt:'optional', checking:'checking…',
-    wiz_overview_title:'1. What the app can do',
+    wiz_overview_title:'What the app can do',
     wiz_overview_sub:'The short path from a document to reusable knowledge.',
     wiz_ov1:'① Load documents into a project (PDF, Word, images…) — the “Load project” tab.',
     wiz_ov2:'② Optionally tune a project skill — a short instruction on what to extract.',
     wiz_ov3:'③ Run processing — the local model turns documents into structured knowledge.',
     wiz_ov4:'④ Use it: ask the model, generate documents and diagrams, build your own skills.',
     vhelp_tag:'Screen tip', vhelp_ok:'Got it',
-    vhelp_off:'Don\'t show tips automatically', vhelp_help_btn:'Help for this screen'
+    vhelp_off:'Don\'t show tips automatically', vhelp_help_btn:'Help for this screen',
+    tut_btn:'Tutorial', tut_welcome_title:'Tutorial — how to use the app',
+    tut_welcome_sub:'A short tour of the screens. Click Next to see what lives where.',
+    tut_overview_title:'What the app can do', tut_close:'Close'
   }
 };
 let LANG = localStorage.getItem('uiLang') || ((navigator.language || 'en').slice(0,2) === 'ru' ? 'ru' : 'en');
@@ -3217,8 +3227,9 @@ function applyLang(){
   const titleEl = document.getElementById('view-title');
   if (titleEl) titleEl.textContent = t('nav_' + (state.view || 'ingest'));
   const lb = document.getElementById('lang-toggle'); if (lb) lb.textContent = LANG === 'ru' ? 'EN' : 'RU';
-  const sb = document.getElementById('setup-btn'); if (sb) sb.title = t('setup_btn');
+  const sb = document.getElementById('setup-btn'); if (sb){ sb.title = t('setup_btn'); if (sb.lastElementChild) sb.lastElementChild.textContent = t('setup_btn'); }
   const hb = document.getElementById('help-btn'); if (hb) hb.title = t('vhelp_help_btn');
+  const tb = document.getElementById('tut-btn'); if (tb){ tb.title = t('tut_btn'); if (tb.lastElementChild) tb.lastElementChild.textContent = t('tut_btn'); }
 }
 function setLang(l){
   LANG = l; localStorage.setItem('uiLang', l); applyLang();
@@ -3350,6 +3361,57 @@ function showViewHelp(view, force){
   document.getElementById('vhelp-overlay').style.display = 'flex';
 }
 
+// Help Tutorial — a guided tour through the overview + every screen
+let tutStep = 0;
+function tutorialPages(){
+  const pages = [{ icon:'🧠', title:t('tut_overview_title'),
+    steps:[t('wiz_ov1'), t('wiz_ov2'), t('wiz_ov3'), t('wiz_ov4')] }];
+  ['ingest','skipped','chat','artifact','skills','templates','settings'].forEach(v => {
+    const c = VIEW_HELP[v][LANG] || VIEW_HELP[v].ru;
+    pages.push({ icon:VIEW_ICONS[v], title:c.title, steps:c.steps });
+  });
+  return pages;
+}
+function buildTutorialDom(){
+  if (document.getElementById('tut-overlay')) return;
+  const o = document.createElement('div');
+  o.id = 'tut-overlay';
+  o.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;padding:20px';
+  o.innerHTML = '<div class="tut-card card" style="max-width:520px;width:100%;max-height:88vh;overflow:auto"></div>';
+  o.addEventListener('click', e => { if (e.target === o) closeTutorial(); });
+  document.body.appendChild(o);
+}
+function openTutorial(){ buildTutorialDom(); tutStep = 0; renderTutorial(); document.getElementById('tut-overlay').style.display = 'flex'; }
+function closeTutorial(){ const o=document.getElementById('tut-overlay'); if(o) o.style.display='none'; }
+function tutNav(d){
+  const pages = tutorialPages();
+  if (d>0 && tutStep < pages.length-1) tutStep++;
+  else if (d>0) return closeTutorial();
+  else if (d<0 && tutStep>0) tutStep--;
+  renderTutorial();
+}
+function renderTutorial(){
+  const o = document.getElementById('tut-overlay'); if(!o) return;
+  const pages = tutorialPages();
+  const p = pages[tutStep];
+  const last = tutStep === pages.length-1;
+  o.querySelector('.tut-card').innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
+      '<strong style="font-size:16px">'+t('tut_welcome_title')+'</strong>'+
+      '<span style="color:var(--text3);font-size:11px">'+t('wiz_step')+' '+(tutStep+1)+' '+t('wiz_of')+' '+pages.length+'</span></div>'+
+    '<div style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.5">'+t('tut_welcome_sub')+'</div>'+
+    '<div style="border-top:1px solid var(--border);padding-top:12px">'+
+      '<strong style="font-size:14px">'+(p.icon||'')+' '+p.title+'</strong>'+
+      '<ul style="margin:8px 0 4px;padding-left:18px;font-size:12.5px;color:var(--text2);line-height:1.7">'+
+        p.steps.map(s => '<li>'+s+'</li>').join('')+'</ul></div>'+
+    '<div style="display:flex;justify-content:space-between;margin-top:16px">'+
+      '<button class="btn btn-ghost btn-sm" onclick="closeTutorial()">'+t('tut_close')+'</button>'+
+      '<div style="display:flex;gap:8px">'+
+        (tutStep>0?'<button class="btn btn-ghost" onclick="tutNav(-1)">'+t('wiz_back')+'</button>':'')+
+        '<button class="btn btn-primary" onclick="tutNav(1)">'+(last?t('wiz_finish'):t('wiz_next'))+'</button>'+
+      '</div></div>';
+}
+
 function injectChrome(){
   // language toggle + setup button in topbar
   const bar = document.querySelector('.topbar');
@@ -3358,10 +3420,13 @@ function injectChrome(){
     wrap.style.cssText = 'margin-left:auto;display:flex;gap:8px;align-items:center';
     wrap.innerHTML =
       '<button id="help-btn" class="btn btn-ghost btn-sm" onclick="showViewHelp(state.view, true)" title="">ⓘ</button>' +
+      '<button id="tut-btn" class="btn btn-ghost btn-sm" onclick="openTutorial()" title="">📘 <span></span></button>' +
       '<button id="setup-btn" class="btn btn-ghost btn-sm" onclick="openWizard(true)" title="">✦ <span></span></button>' +
       '<button id="lang-toggle" class="btn btn-ghost btn-sm" onclick="setLang(LANG===\'ru\'?\'en\':\'ru\')"></button>';
     bar.appendChild(wrap);
     const hbtn = document.getElementById('help-btn'); if (hbtn) hbtn.title = t('vhelp_help_btn');
+    document.querySelector('#tut-btn span').textContent = t('tut_btn');
+    document.querySelector('#tut-btn').childNodes[0].nodeValue = '📘 ';
     document.querySelector('#setup-btn span').textContent = '';
     document.querySelector('#setup-btn').childNodes[0].nodeValue = '✦ ';
     document.querySelector('#setup-btn').lastElementChild.textContent = t('setup_btn');
@@ -3382,7 +3447,7 @@ function wizNav(d){
   else if (d<0 && wizStep>0){ wizStep--; }
   else if (d>0 && wizStep===4){ return finishWizard(); }
   renderWizard();
-  if (wizStep===1) runSelfCheck();
+  if (wizStep===2) runSelfCheck();
 }
 async function runSelfCheck(){
   const box = document.getElementById('wiz-check-list'); if(!box) return;
@@ -3403,6 +3468,10 @@ function renderWizard(){
   const o = document.getElementById('wiz-overlay');
   if (!o) return;
   const steps = [
+    { title:'wiz_lang_title', sub:'wiz_lang_sub', body:
+      '<div style="display:flex;gap:10px;margin:10px 0">'+
+      '<button class="btn '+(LANG==='ru'?'btn-primary':'btn-ghost')+'" onclick="setLang(\'ru\');renderWizard()">Русский</button>'+
+      '<button class="btn '+(LANG==='en'?'btn-primary':'btn-ghost')+'" onclick="setLang(\'en\');renderWizard()">English</button></div>' },
     { title:'wiz_overview_title', sub:'wiz_overview_sub', body:
       '<div style="font-size:13px;color:var(--text2);line-height:1.9;margin:8px 0">'+
       t('wiz_ov1')+'<br>'+t('wiz_ov2')+'<br>'+t('wiz_ov3')+'<br>'+t('wiz_ov4')+'</div>' },
@@ -3410,10 +3479,6 @@ function renderWizard(){
       '<div id="wiz-check-list" style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px;margin:8px 0"></div>'+
       '<div id="wiz-check-note" style="font-size:11px;margin-bottom:8px"></div>'+
       '<button class="btn btn-ghost btn-sm" onclick="runSelfCheck()">↻ '+t('wiz_check_run')+'</button>' },
-    { title:'wiz_lang_title', sub:'wiz_lang_sub', body:
-      '<div style="display:flex;gap:10px;margin:10px 0">'+
-      '<button class="btn '+(LANG==='ru'?'btn-primary':'btn-ghost')+'" onclick="setLang(\'ru\');renderWizard()">Русский</button>'+
-      '<button class="btn '+(LANG==='en'?'btn-primary':'btn-ghost')+'" onclick="setLang(\'en\');renderWizard()">English</button></div>' },
     { title:'wiz_ind_title', sub:'wiz_ind_sub', body:
       '<div style="display:flex;flex-direction:column;gap:6px;margin:10px 0">'+
       INDUSTRIES.map(i => '<label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer">'+
@@ -3452,6 +3517,8 @@ function initOnboarding(){
   buildWizardDom();
   injectChrome();
   applyLang();
+  const rel = document.getElementById('app-release');
+  if (rel) rel.textContent = APP_RELEASE + ' · v' + APP_VERSION;
   // first run: show wizard unless already onboarded
   fetch(API + '/settings').then(r=>r.json()).then(d=>{
     if (d && d.industry && d.industry !== 'Generic') wizIndustry = d.industry;

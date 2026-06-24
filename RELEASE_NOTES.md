@@ -1,6 +1,27 @@
 # Release Notes
 
-## Evil's Fight — 2026-06-23
+> Versions follow **`<Major>.<minor>.<small change>`**, counted from the first release:
+> `1.0.0` MortalCombat1 · `1.1.0` MortalCombat2 · `2.0.0` Evil's Fight · `2.1.0` Lame fighter 2
+
+## Lame fighter 2 (2.1.0) — 2026-06-24
+
+Polish pass on onboarding, in-app help, and versioning.
+
+### Onboarding & help
+- **Language is now the wizard's first step** — pick EN / RU before anything else, so the rest of setup reads in your language.
+- **Help Tutorial** — a new **📘 Tutorial** button in the header opens a guided tour: an overview plus one page describing each screen. The per-screen **ⓘ** tip and the **✦ Setup wizard** remain alongside it.
+- Wizard step titles dropped their fixed numbers — the "Step X of 5" counter already shows position, so reordering steps no longer leaves stale labels.
+
+### Versioning
+- The app shows its **release name and version** under the logo (top-left).
+- Introduced the `<Major>.<minor>.<small change>` scheme, numbered from the first release (see the note above).
+
+### Privacy
+- Removed the Confluence / Jira corporate URLs, email, and API tokens from local config. The integration code stays, but ships unconfigured — set your own values in **Settings**.
+
+---
+
+## Evil's Fight (2.0.0) — 2026-06-23
 
 The big pivot: Second Brain is now an **educational template** for building your first local, agentic AI application. The telecom/architecture framing is gone; the worked example is **ML/AI study notes**, and everything is built to be retargeted to your own domain.
 
@@ -27,7 +48,7 @@ The big pivot: Second Brain is now an **educational template** for building your
 
 ---
 
-## MortalCombat2 — 2026-05-21
+## MortalCombat2 (1.1.0) — 2026-05-21
 
 Релиз про слабое железо и надёжность создания скиллов.
 
@@ -61,7 +82,7 @@ The big pivot: Second Brain is now an **educational template** for building your
 
 ---
 
-## MortalCombat1 — 2026-05-20
+## MortalCombat1 (1.0.0) — 2026-05-20
 
 Крупный релиз: генерация диаграмм и шаблонов, кросс-платформенность,
 полнопокрытийная обработка документов.
